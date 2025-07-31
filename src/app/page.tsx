@@ -11,8 +11,10 @@ interface SimilarQuestion {
 interface GenerateResponse {
   questions: string[];
   similarQuestions?: SimilarQuestion[];
-  source: "vector_search" | "generated";
+  source: "vector_search" | "generated" | "mixed";
   message?: string;
+  existingCount?: number;
+  generatedCount?: number;
 }
 
 export default function Home() {
@@ -23,6 +25,8 @@ export default function Home() {
   );
   const [source, setSource] = useState<string>("");
   const [message, setMessage] = useState<string>("");
+  const [existingCount, setExistingCount] = useState<number>(0);
+  const [generatedCount, setGeneratedCount] = useState<number>(0);
   const [isGenerating, setIsGenerating] = useState(false);
 
   const generate = async () => {
@@ -38,87 +42,111 @@ export default function Home() {
       setSimilarQuestions(data.similarQuestions || []);
       setSource(data.source);
       setMessage(data.message || "");
+      setExistingCount(data.existingCount || 0);
+      setGeneratedCount(data.generatedCount || 0);
     } catch (error) {
       console.error("Error generating questions:", error);
       setQuestions([]);
       setSimilarQuestions([]);
       setSource("");
       setMessage("");
+      setExistingCount(0);
+      setGeneratedCount(0);
     } finally {
       setIsGenerating(false);
     }
   };
 
   return (
-    <div className="p-8 max-w-xl mx-auto">
-      <h1 className="text-2xl mb-4">AI Skill Question Generator</h1>
-      <input
-        value={skill}
-        onChange={(e) => setSkill(e.target.value)}
-        placeholder="Enter skill name"
-        className="p-2 border w-full mb-4"
-      />
-      <button
-        onClick={generate}
-        disabled={isGenerating}
-        className={`px-4 py-2 text-white ${
-          isGenerating
-            ? "bg-blue-400 cursor-not-allowed"
-            : "bg-blue-500 hover:bg-blue-600"
-        }`}
-      >
-        {isGenerating ? "Generating..." : "Generate Questions"}
-      </button>
+    <div className="min-h-screen bg-gray-50">
+      <div className="p-8 max-w-xl mx-auto">
+        <h1 className="text-2xl mb-4">AI Skill Question Generator</h1>
+        <input
+          value={skill}
+          onChange={(e) => setSkill(e.target.value)}
+          placeholder="Enter skill name"
+          className="p-2 border w-full mb-4"
+        />
+        <button
+          onClick={generate}
+          disabled={isGenerating}
+          className={`px-4 py-2 text-white ${
+            isGenerating
+              ? "bg-blue-400 cursor-not-allowed"
+              : "bg-blue-500 hover:bg-blue-600"
+          }`}
+        >
+          {isGenerating ? "Generating..." : "Generate Questions"}
+        </button>
 
-      {/* Status Message */}
-      {source && (
-        <div className="mt-4 p-3 bg-gray-100 rounded">
-          <p className="text-sm text-gray-700">
-            {source === "vector_search"
-              ? "✨ Found similar questions using AI search"
-              : "🤖 Generated new questions"}
-          </p>
-          {message && <p className="text-xs text-gray-600 mt-1">{message}</p>}
-        </div>
-      )}
+        {/* Status Message */}
+        {source && (
+          <div className="mt-4 p-3 bg-gray-100 rounded">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-700">
+                {source === "vector_search"
+                  ? "✨ Found similar questions using AI search"
+                  : source === "mixed"
+                  ? "🔄 Mixed existing and generated questions"
+                  : "🤖 Generated new questions"}
+              </p>
+              <div className="flex space-x-2 text-xs">
+                {existingCount > 0 && (
+                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
+                    {existingCount} existing
+                  </span>
+                )}
+                {generatedCount > 0 && (
+                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                    {generatedCount} generated
+                  </span>
+                )}
+              </div>
+            </div>
+            {message && <p className="text-xs text-gray-600 mt-1">{message}</p>}
+          </div>
+        )}
 
-      {/* Main Questions */}
-      {questions.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-3">
-            {source === "vector_search"
-              ? "Similar Questions Found"
-              : "Generated Questions"}
-          </h2>
-          <ul className="space-y-2">
-            {questions.map((q, idx) => (
-              <li key={idx} className="border p-3 rounded bg-white shadow-sm">
-                {q}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        {/* Main Questions */}
+        {questions.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-lg font-semibold mb-3">
+              {source === "vector_search"
+                ? "Similar Questions Found"
+                : source === "mixed"
+                ? "Questions (Mixed Sources)"
+                : "Generated Questions"}
+            </h2>
+            <ul className="space-y-2">
+              {questions.map((q, idx) => (
+                <li key={idx} className="border p-3 rounded bg-white shadow-sm">
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-      {/* Similar Questions (when generated new questions but found some similar ones) */}
-      {source === "generated" && similarQuestions.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-3">
-            Related Questions Found
-          </h2>
-          <ul className="space-y-2">
-            {similarQuestions.map((q, idx) => (
-              <li key={idx} className="border p-3 rounded bg-blue-50">
-                <div className="text-sm text-gray-800">{q.text}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  From: {q.skillName} • Similarity:{" "}
-                  {(q.similarity * 100).toFixed(1)}%
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        {/* Similar Questions (when generated new questions but found some similar ones) */}
+        {source === "generated" && similarQuestions.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-lg font-semibold mb-3">
+              Related Questions Found
+            </h2>
+            <ul className="space-y-2">
+              {similarQuestions.map((q, idx) => (
+                <li key={idx} className="border p-3 rounded bg-blue-50">
+                  <div className="text-sm text-gray-800">{q.text}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    From: {q.skillName} • Similarity:{" "}
+                    {(q.similarity * 100).toFixed(1)}%
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -15,44 +15,53 @@ export async function POST(req: Request) {
   // 2. Search for similar questions using vector search
   const similarQuestions = await searchQuestionsBySkill(skillName, 10, 0.6);
 
-  if (similarQuestions.length >= 3) {
+  if (similarQuestions.length >= 5) {
     console.log(
-      `Found ${similarQuestions.length} similar questions for skill: ${skillName}`
+      `Found ${similarQuestions.length} similar questions for skill: ${skillName}, using first 5`
     );
-    console.log(
-      "Similar questions from skills:",
-      similarQuestions
-        .map((q) => `${q.skillName} (${q.similarity.toFixed(2)})`)
-        .join(", ")
-    );
+    const selectedQuestions = similarQuestions.slice(0, 5);
     return Response.json({
-      questions: similarQuestions.map((q) => q.text),
-      similarQuestions: similarQuestions.map((q) => ({
+      questions: selectedQuestions.map((q) => q.text),
+      similarQuestions: selectedQuestions.map((q) => ({
         text: q.text,
         skillName: q.skillName,
         similarity: q.similarity,
       })),
       source: "vector_search",
+      existingCount: 5,
+      generatedCount: 0,
     });
   }
 
+  const existingCount = similarQuestions.length;
+  const needToGenerate = 5 - existingCount;
+
   console.log(
-    `Found only ${similarQuestions.length} similar questions for skill: ${skillName}. Generating new questions.`
+    `Found ${existingCount} similar questions for skill: ${skillName}. Generating ${needToGenerate} new questions.`
   );
 
   // 3. Generate new questions with OpenAI
-  const prompt = `Generate 5 interview questions for the skill "${skillName}"`;
+  const prompt = `Generate ${needToGenerate} interview questions for the skill "${skillName}". Return the response as a JSON object with a "questions" array containing the questions as strings.`;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1",
     messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
   });
 
-  const questionsText =
-    completion.choices[0].message.content
-      ?.split("\n")
-      .filter((line) => line.trim())
-      .map((q) => q.replace(/^\d+\.\s*/, "").trim()) || [];
+  let questionsText: string[] = [];
+  try {
+    const response = JSON.parse(completion.choices[0].message.content || "{}");
+    questionsText = response.questions || [];
+  } catch (error) {
+    console.error("Failed to parse questions JSON:", error);
+    // Fallback to text parsing
+    questionsText =
+      completion.choices[0].message.content
+        ?.split("\n")
+        .filter((line) => line.trim())
+        .map((q) => q.replace(/^\d+\.\s*/, "").trim()) || [];
+  }
 
   // 4. Store new questions with embeddings
   for (const questionText of questionsText) {
@@ -70,17 +79,22 @@ export async function POST(req: Request) {
     `Generated and stored ${questionsText.length} new questions for skill: ${skillName}`
   );
 
+  // Combine existing and new questions to make exactly 5
+  const allQuestions = [
+    ...similarQuestions.map((q) => q.text),
+    ...questionsText,
+  ].slice(0, 5);
+
   return Response.json({
-    questions: questionsText,
+    questions: allQuestions,
     similarQuestions: similarQuestions.map((q) => ({
       text: q.text,
       skillName: q.skillName,
       similarity: q.similarity,
     })),
-    source: "generated",
-    message:
-      similarQuestions.length > 0
-        ? `Generated ${questionsText.length} new questions. Found ${similarQuestions.length} similar existing questions.`
-        : `Generated ${questionsText.length} new questions. No similar questions found in database.`,
+    source: "mixed",
+    existingCount: existingCount,
+    generatedCount: questionsText.length,
+    message: `Using ${existingCount} existing questions and generated ${questionsText.length} new questions.`,
   });
 }

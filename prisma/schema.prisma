@@ -8,9 +8,10 @@ datasource db {
 }
 
 model Skill {
-  id        Int         @id @default(autoincrement())
-  name      String      @unique
-  questions Question[]
+  id                    Int                   @id @default(autoincrement())
+  name                  String                @unique
+  questions             Question[]
+  jobDescriptionSkills  JobDescriptionSkill[]
 }
 
 model Question {
@@ -19,4 +20,23 @@ model Question {
   skillId   Int
   text      String
   embedding Json    // Store as float[] in Postgres
+}
+
+model JobDescription {
+  id          Int                   @id @default(autoincrement())
+  title       String?
+  content     String
+  embedding   Json                  // Store as float[] in Postgres
+  createdAt   DateTime              @default(now())
+  skills      JobDescriptionSkill[]
+}
+
+model JobDescriptionSkill {
+  id               Int            @id @default(autoincrement())
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+  jobDescriptionId Int
+  skill            Skill          @relation(fields: [skillId], references: [id])
+  skillId          Int
+  
+  @@unique([jobDescriptionId, skillId])
 }
