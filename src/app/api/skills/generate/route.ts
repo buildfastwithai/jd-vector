@@ -1,6 +1,7 @@
 import { getEmbedding } from "@/lib/embedding";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/prisma";
+import { searchQuestionsBySkill } from "@/lib/vectorSearch";
 
 export async function POST(req: Request) {
   const { skillName } = await req.json();
@@ -11,24 +12,32 @@ export async function POST(req: Request) {
     skill = await prisma.skill.create({ data: { name: skillName } });
   }
 
-  // 2. Check for existing questions for this skill
-  const existingQuestions = await prisma.question.findMany({
-    where: { skillId: skill.id },
-    select: { text: true },
-  });
+  // 2. Search for similar questions using vector search
+  const similarQuestions = await searchQuestionsBySkill(skillName, 10, 0.6);
 
-  if (existingQuestions.length > 0) {
+  if (similarQuestions.length >= 3) {
     console.log(
-      `Using ${existingQuestions.length} existing questions for skill: ${skillName}`
+      `Found ${similarQuestions.length} similar questions for skill: ${skillName}`
+    );
+    console.log(
+      "Similar questions from skills:",
+      similarQuestions
+        .map((q) => `${q.skillName} (${q.similarity.toFixed(2)})`)
+        .join(", ")
     );
     return Response.json({
-      questions: existingQuestions.map((q: { text: string }) => q.text),
-      source: "existing",
+      questions: similarQuestions.map((q) => q.text),
+      similarQuestions: similarQuestions.map((q) => ({
+        text: q.text,
+        skillName: q.skillName,
+        similarity: q.similarity,
+      })),
+      source: "vector_search",
     });
   }
 
   console.log(
-    `No existing questions found for skill: ${skillName}. Generating new questions.`
+    `Found only ${similarQuestions.length} similar questions for skill: ${skillName}. Generating new questions.`
   );
 
   // 3. Generate new questions with OpenAI
@@ -63,6 +72,15 @@ export async function POST(req: Request) {
 
   return Response.json({
     questions: questionsText,
+    similarQuestions: similarQuestions.map((q) => ({
+      text: q.text,
+      skillName: q.skillName,
+      similarity: q.similarity,
+    })),
     source: "generated",
+    message:
+      similarQuestions.length > 0
+        ? `Generated ${questionsText.length} new questions. Found ${similarQuestions.length} similar existing questions.`
+        : `Generated ${questionsText.length} new questions. No similar questions found in database.`,
   });
 }
