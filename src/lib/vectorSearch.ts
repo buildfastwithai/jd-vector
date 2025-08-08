@@ -31,7 +31,7 @@ export interface SimilarQuestion {
 export async function searchSimilarQuestions(
   query: string,
   limit: number = 10,
-  minSimilarity: number = 0.7
+  minSimilarity: number = 0.9
 ): Promise<SimilarQuestion[]> {
   // Get embedding for the query
   const queryEmbedding = await getEmbedding(query);
@@ -77,6 +77,139 @@ export async function searchQuestionsBySkill(
   return searchSimilarQuestions(skillName, limit, minSimilarity);
 }
 
+export interface SkillWithConfidence {
+  id: number;
+  name: string;
+  confidence: number;
+  source: "existing" | "extracted";
+}
+
+export async function searchSkillsForJobDescription(
+  jobDescription: string,
+  extractedSkills: string[]
+): Promise<SkillWithConfidence[]> {
+  const skillsWithConfidence: SkillWithConfidence[] = [];
+
+  // Get all existing skills
+  const existingSkills = await prisma.skill.findMany();
+
+  for (const extractedSkill of extractedSkills) {
+    // Find exact match first
+    const exactMatch = existingSkills.find(
+      (skill) => skill.name.toLowerCase() === extractedSkill.toLowerCase()
+    );
+
+    if (exactMatch) {
+      skillsWithConfidence.push({
+        id: exactMatch.id,
+        name: exactMatch.name,
+        confidence: 1.0,
+        source: "existing",
+      });
+      continue;
+    }
+
+    // Calculate semantic similarity with existing skills
+    const extractedSkillEmbedding = await getEmbedding(extractedSkill);
+    let bestMatch: SkillWithConfidence | null = null;
+
+    for (const existingSkill of existingSkills) {
+      const skillEmbedding = await getEmbedding(existingSkill.name);
+      const similarity = cosineSimilarity(
+        extractedSkillEmbedding,
+        skillEmbedding
+      );
+
+      if (
+        similarity >= 0.8 &&
+        (!bestMatch || similarity > bestMatch.confidence)
+      ) {
+        bestMatch = {
+          id: existingSkill.id,
+          name: existingSkill.name,
+          confidence: similarity,
+          source: "existing",
+        };
+      }
+    }
+
+    if (bestMatch) {
+      skillsWithConfidence.push(bestMatch);
+    } else {
+      // Create new skill
+      const newSkill = await prisma.skill.create({
+        data: { name: extractedSkill },
+      });
+
+      skillsWithConfidence.push({
+        id: newSkill.id,
+        name: newSkill.name,
+        confidence: 1.0,
+        source: "extracted",
+      });
+    }
+  }
+
+  return skillsWithConfidence;
+}
+
+export interface QuestionWithConfidence extends SimilarQuestion {
+  needsGeneration: boolean;
+}
+
+export async function getQuestionsWithConfidence(
+  skillName: string,
+  skillId: number,
+  limit: number = 5
+): Promise<QuestionWithConfidence[]> {
+  // First try to get questions directly by skill ID
+  const directQuestions = await getQuestionsBySkillId(skillId, limit);
+
+  if (directQuestions.length >= limit) {
+    return directQuestions.map((q) => ({
+      ...q,
+      needsGeneration: false,
+    }));
+  }
+
+  // Then try vector search for similar questions
+  const vectorQuestions = await searchQuestionsBySkill(
+    skillName,
+    limit - directQuestions.length,
+    0.9 // 90% similarity threshold
+  );
+
+  // Filter out duplicates
+  const uniqueVectorQuestions = vectorQuestions.filter(
+    (vq) => !directQuestions.some((dq) => dq.id === vq.id)
+  );
+
+  const allQuestions = [...directQuestions, ...uniqueVectorQuestions];
+
+  // If we still don't have enough questions with 90% confidence, mark for generation
+  const questionsWithConfidence = allQuestions.slice(0, limit).map((q) => ({
+    ...q,
+    needsGeneration: q.similarity < 0.9,
+  }));
+
+  // If we have fewer than the limit, we'll need to generate more
+  if (questionsWithConfidence.length < limit) {
+    const needed = limit - questionsWithConfidence.length;
+    for (let i = 0; i < needed; i++) {
+      questionsWithConfidence.push({
+        id: -1, // Placeholder for generated questions
+        text: `Generated question ${i + 1} needed`,
+        skillId,
+        skillName,
+        similarity: 0.0,
+        needsGeneration: true,
+      });
+    }
+  }
+
+  return questionsWithConfidence;
+}
+
 export async function getQuestionsBySkillId(
   skillId: number,
   limit: number = 10
@@ -114,7 +247,7 @@ export interface SimilarJobDescription {
 export async function searchSimilarJobDescriptions(
   query: string,
   limit: number = 5,
-  minSimilarity: number = 0.5
+  minSimilarity: number = 0.7
 ): Promise<SimilarJobDescription[]> {
   // Get embedding for the query
   const queryEmbedding = await getEmbedding(query);

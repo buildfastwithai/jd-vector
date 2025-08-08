@@ -1,14 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import SkillsTable from "@/components/SkillsTable";
+import QuestionsTable from "@/components/QuestionsTable";
+
+interface Question {
+  text: string;
+  confidence: number;
+  source: "existing" | "generated";
+}
 
 interface Skill {
   id: number;
   name: string;
-  questions: string[];
-  hasExistingQuestions: boolean;
-  existingCount?: number;
-  generatedCount?: number;
+  confidence: number;
+  source?: "existing" | "extracted";
+  questions: Question[];
 }
 
 interface SimilarJD {
@@ -82,8 +89,9 @@ export default function JobDescriptionAnalyzer() {
             Job Description Analyzer
           </h1>
           <p className="text-gray-600 mb-6">
-            Paste a job description to extract skills and generate interview
-            questions. We'll check for similar JDs first to save time!
+            Analyze job descriptions with AI-powered skill extraction and
+            intelligent question generation. Features confidence scoring and
+            automatic question generation when similarity is below 90%.
           </p>
 
           {/* Input Form */}
@@ -210,66 +218,11 @@ export default function JobDescriptionAnalyzer() {
               </div>
             )}
 
-            {/* Skills and Questions */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                Extracted Skills & Interview Questions
-              </h3>
-              <div className="grid gap-6">
-                {result.skills.map((skill) => (
-                  <div
-                    key={skill.id}
-                    className="border border-gray-200 rounded-lg p-4"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-lg font-medium text-gray-900">
-                        {skill.name}
-                      </h4>
-                      <div className="flex items-center space-x-2">
-                        {skill.hasExistingQuestions ? (
-                          <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded">
-                            All Existing
-                          </span>
-                        ) : (
-                          <div className="flex space-x-1">
-                            {(skill.existingCount ?? 0) > 0 && (
-                              <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded">
-                                {skill.existingCount} existing
-                              </span>
-                            )}
-                            {(skill.generatedCount ?? 0) > 0 && (
-                              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded">
-                                {skill.generatedCount} generated
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        <span className="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-1 rounded">
-                          {skill.questions.length} total
-                        </span>
-                      </div>
-                    </div>
+            {/* Skills Table */}
+            <SkillsTable skills={result.skills} />
 
-                    {skill.questions.length > 0 ? (
-                      <div className="space-y-2">
-                        {skill.questions.map((question, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-gray-50 p-3 rounded border-l-4 border-blue-500"
-                          >
-                            <p className="text-gray-800">{question}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">
-                        No questions available for this skill.
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/* Questions Table */}
+            <QuestionsTable skills={result.skills} />
           </div>
         )}
       </div>

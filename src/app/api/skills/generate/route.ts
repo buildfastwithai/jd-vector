@@ -12,7 +12,30 @@ export async function POST(req: Request) {
     skill = await prisma.skill.create({ data: { name: skillName } });
   }
 
-  // 2. Search for similar questions using vector search
+  // 2. First, check if questions already exist in database for this skill
+  const existingQuestions = await prisma.question.findMany({
+    where: { skillId: skill.id },
+    take: 5,
+  });
+
+  if (existingQuestions.length >= 5) {
+    console.log(
+      `Found ${existingQuestions.length} existing questions for skill: ${skillName} in database, using them`
+    );
+    return Response.json({
+      questions: existingQuestions.map((q) => q.text),
+      similarQuestions: existingQuestions.map((q) => ({
+        text: q.text,
+        skillName: skillName,
+        similarity: 1.0,
+      })),
+      source: "database",
+      existingCount: existingQuestions.length,
+      generatedCount: 0,
+    });
+  }
+
+  // 3. If not enough in database, search for similar questions using vector search
   const similarQuestions = await searchQuestionsBySkill(skillName, 10, 0.6);
 
   if (similarQuestions.length >= 5) {
@@ -33,11 +56,14 @@ export async function POST(req: Request) {
     });
   }
 
-  const existingCount = similarQuestions.length;
+  const existingCount = Math.max(
+    existingQuestions.length,
+    similarQuestions.length
+  );
   const needToGenerate = 5 - existingCount;
 
   console.log(
-    `Found ${existingCount} similar questions for skill: ${skillName}. Generating ${needToGenerate} new questions.`
+    `Found ${existingCount} questions for skill: ${skillName} (${existingQuestions.length} from database, ${similarQuestions.length} from vector search). Generating ${needToGenerate} new questions.`
   );
 
   // 3. Generate new questions with OpenAI
@@ -81,17 +107,25 @@ export async function POST(req: Request) {
 
   // Combine existing and new questions to make exactly 5
   const allQuestions = [
+    ...existingQuestions.map((q) => q.text),
     ...similarQuestions.map((q) => q.text),
     ...questionsText,
   ].slice(0, 5);
 
   return Response.json({
     questions: allQuestions,
-    similarQuestions: similarQuestions.map((q) => ({
-      text: q.text,
-      skillName: q.skillName,
-      similarity: q.similarity,
-    })),
+    similarQuestions: [
+      ...existingQuestions.map((q) => ({
+        text: q.text,
+        skillName: skillName,
+        similarity: 1.0,
+      })),
+      ...similarQuestions.map((q) => ({
+        text: q.text,
+        skillName: q.skillName,
+        similarity: q.similarity,
+      })),
+    ],
     source: "mixed",
     existingCount: existingCount,
     generatedCount: questionsText.length,
