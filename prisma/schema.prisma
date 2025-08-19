@@ -12,6 +12,17 @@ model Skill {
   name                  String                @unique
   questions             Question[]
   jobDescriptionSkills  JobDescriptionSkill[]
+  aliases               SkillAlias[]
+}
+
+model SkillAlias {
+  id       Int    @id @default(autoincrement())
+  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  skillId  Int
+  alias    String
+  
+  @@unique([skillId, alias])
+  @@index([alias])
 }
 
 model Question {

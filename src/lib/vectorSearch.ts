@@ -98,17 +98,46 @@ function normalizeSkillName(skillName: string): string {
     .trim();
 }
 
-// Cache for AI-generated aliases to avoid repeated API calls
+// In-memory cache for performance (secondary cache)
 const aliasCache = new Map<string, string[]>();
 
 async function getSkillAliases(skillName: string): Promise<string[]> {
   const normalized = normalizeSkillName(skillName);
   
-  // Check cache first
+  // Check in-memory cache first (fastest)
   if (aliasCache.has(normalized)) {
     return aliasCache.get(normalized)!;
   }
 
+  // Check database for existing aliases
+  try {
+    const skill = await prisma.skill.findFirst({
+      where: {
+        OR: [
+          { name: { equals: skillName, mode: 'insensitive' } },
+          { aliases: { some: { alias: { equals: normalized, mode: 'insensitive' } } } }
+        ]
+      },
+      include: {
+        aliases: true
+      }
+    });
+
+    if (skill && skill.aliases.length > 0) {
+      console.log(`Found ${skill.aliases.length} existing aliases for "${skillName}" in database`);
+      const dbAliases = [normalized, skillName.trim(), skill.name, ...skill.aliases.map(a => a.alias)];
+      const uniqueAliases = [...new Set(dbAliases.map(a => normalizeSkillName(a)))];
+      
+      // Cache in memory for future use
+      aliasCache.set(normalized, uniqueAliases);
+      return uniqueAliases;
+    }
+  } catch (error) {
+    console.error("Error fetching aliases from database:", error);
+  }
+
+  // No aliases in database, generate with AI
+  console.log(`No aliases found for "${skillName}" in database. Generating with AI...`);
   const aliases = [normalized, skillName.trim()]; // Include original form
 
   try {
@@ -148,7 +177,11 @@ Example for "React":
       });
     }
 
-    console.log(`Generated aliases for "${skillName}":`, aliases);
+    console.log(`Generated ${aliases.length} aliases for "${skillName}":`, aliases);
+
+    // Store aliases in database for future use
+    await storeSkillAliases(skillName, aliases);
+
   } catch (error) {
     console.error("Failed to generate AI aliases for", skillName, error);
     // Fallback to basic variations if AI fails
@@ -166,21 +199,69 @@ Example for "React":
   return uniqueAliases;
 }
 
-async function calculateTextSimilarity(str1: string, str2: string): Promise<number> {
-  const norm1 = normalizeSkillName(str1);
-  const norm2 = normalizeSkillName(str2);
+async function storeSkillAliases(skillName: string, aliases: string[]): Promise<void> {
+  try {
+    // First, find or create the skill
+    let skill = await prisma.skill.findFirst({
+      where: { name: { equals: skillName, mode: 'insensitive' } }
+    });
+
+    if (!skill) {
+      skill = await prisma.skill.create({
+        data: { name: skillName }
+      });
+    }
+
+    // Store each alias (skip duplicates)
+    for (const alias of aliases) {
+      const normalizedAlias = normalizeSkillName(alias);
+      if (normalizedAlias && normalizedAlias !== normalizeSkillName(skill.name)) {
+        try {
+          await prisma.skillAlias.upsert({
+            where: {
+              skillId_alias: {
+                skillId: skill.id,
+                alias: normalizedAlias
+              }
+            },
+            update: {}, // No update needed if exists
+            create: {
+              skillId: skill.id,
+              alias: normalizedAlias
+            }
+          });
+        } catch (error) {
+          // Ignore duplicate errors, continue with other aliases
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (!errorMessage.includes('unique constraint')) {
+            console.error("Error storing alias:", normalizedAlias, error);
+          }
+        }
+      }
+    }
+
+    console.log(`Stored ${aliases.length} aliases for skill "${skillName}" in database`);
+  } catch (error) {
+    console.error("Error storing skill aliases:", error);
+  }
+}
+
+async function calculateTextSimilarity(extractedSkill: string, existingSkill: string): Promise<number> {
+  const norm1 = normalizeSkillName(extractedSkill);
+  const norm2 = normalizeSkillName(existingSkill);
 
   // Exact match
   if (norm1 === norm2) return 1.0;
 
-  // Check AI-generated aliases
+  // Check if existing skill name matches any aliases of the extracted skill
+  // Only generate aliases for the extracted skill, not the existing skill
   try {
-    const aliases1 = await getSkillAliases(str1);
-    const aliases2 = await getSkillAliases(str2);
-
-    for (const alias1 of aliases1) {
-      for (const alias2 of aliases2) {
-        if (alias1 === alias2) return 0.95; // High confidence for alias matches
+    const extractedSkillAliases = await getSkillAliases(extractedSkill);
+    
+    // Check if existing skill matches any alias of extracted skill
+    for (const alias of extractedSkillAliases) {
+      if (normalizeSkillName(alias) === norm2) {
+        return 0.95; // High confidence for alias matches
       }
     }
   } catch (error) {
@@ -294,18 +375,39 @@ export async function searchSkillsForJobDescription(
       console.log(`Matched "${extractedSkill}" → "${bestMatch.name}" (${(bestMatch.confidence * 100).toFixed(1)}%)`);
       skillsWithConfidence.push(bestMatch);
     } else {
-      // Create new skill
+      // Create new skill or find existing one by name
       console.log(`Creating new skill: "${extractedSkill}"`);
-      const newSkill = await prisma.skill.create({
-        data: { name: extractedSkill },
-      });
+      
+      try {
+        const newSkill = await prisma.skill.create({
+          data: { name: extractedSkill },
+        });
 
-      skillsWithConfidence.push({
-        id: newSkill.id,
-        name: newSkill.name,
-        confidence: 1.0,
-        source: "extracted",
-      });
+        skillsWithConfidence.push({
+          id: newSkill.id,
+          name: newSkill.name,
+          confidence: 1.0,
+          source: "extracted",
+        });
+      } catch (error) {
+        // If skill already exists due to race condition, find it
+        const existingSkill = await prisma.skill.findUnique({
+          where: { name: extractedSkill }
+        });
+        
+        if (existingSkill) {
+          console.log(`Found existing skill after create failed: "${extractedSkill}"`);
+          skillsWithConfidence.push({
+            id: existingSkill.id,
+            name: existingSkill.name,
+            confidence: 1.0,
+            source: "extracted",
+          });
+        } else {
+          console.error(`Failed to create or find skill: "${extractedSkill}"`, error);
+          // Skip this skill if we can't create or find it
+        }
+      }
     }
   }
 
