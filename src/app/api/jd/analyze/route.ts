@@ -11,6 +11,71 @@ import {
   QuestionWithConfidence,
 } from "@/lib/vectorSearch";
 
+// Import helper function for skill validation
+function normalizeSkillName(skillName: string): string {
+  return skillName
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getSkillAliases(skillName: string): string[] {
+  const normalized = normalizeSkillName(skillName);
+  const aliases = [normalized];
+
+  const mappings: Record<string, string[]> = {
+    "react": ["reactjs", "react js", "react.js"],
+    "reactjs": ["react", "react js", "react.js"],
+    "react js": ["react", "reactjs", "react.js"],
+    "react.js": ["react", "reactjs", "react js"],
+    "nextjs": ["next js", "next.js", "nextjs", "next"],
+    "next js": ["nextjs", "next.js", "next"],
+    "next.js": ["nextjs", "next js", "next"],
+    "next": ["nextjs", "next js", "next.js"],
+    "nodejs": ["node js", "node.js", "node"],
+    "node js": ["nodejs", "node.js", "node"],
+    "node.js": ["nodejs", "node js", "node"],
+    "node": ["nodejs", "node js", "node.js"],
+  };
+
+  if (mappings[normalized]) {
+    aliases.push(...mappings[normalized]);
+  }
+
+  for (const [key, values] of Object.entries(mappings)) {
+    if (values.includes(normalized) && !aliases.includes(key)) {
+      aliases.push(key);
+    }
+  }
+
+  return [...new Set(aliases)];
+}
+
+function calculateTextSimilarity(str1: string, str2: string): number {
+  const norm1 = normalizeSkillName(str1);
+  const norm2 = normalizeSkillName(str2);
+
+  if (norm1 === norm2) return 1.0;
+
+  const aliases1 = getSkillAliases(str1);
+  const aliases2 = getSkillAliases(str2);
+
+  for (const alias1 of aliases1) {
+    for (const alias2 of aliases2) {
+      if (alias1 === alias2) return 0.95;
+    }
+  }
+
+  if (norm1.includes(norm2) || norm2.includes(norm1)) {
+    const longer = norm1.length > norm2.length ? norm1 : norm2;
+    const shorter = norm1.length > norm2.length ? norm2 : norm1;
+    return shorter.length / longer.length * 0.9;
+  }
+
+  return 0;
+}
+
 export async function POST(req: Request) {
   const { jobDescription, title } = await req.json();
 
@@ -32,7 +97,7 @@ export async function POST(req: Request) {
       0.9
     );
 
-    if (similarJDs.length > 0 && similarJDs[0].similarity >= 0.9) {
+    if (similarJDs.length > 0 && similarJDs[0].similarity >= 0.95) {
       console.log(
         `Found ${
           similarJDs.length
@@ -40,6 +105,36 @@ export async function POST(req: Request) {
           similarJDs[0].similarity * 100
         ).toFixed(1)}%`
       );
+
+      // First, extract skills from the current JD to validate
+      const skillsPrompt = `Extract the key technical skills, technologies, and competencies from this job description. Return the response as a JSON object with a "skills" array containing the skill names as strings.
+
+Job Description:
+${jobDescription}`;
+
+      const skillsCompletion = await openai.chat.completions.create({
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: skillsPrompt }],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+      });
+
+      const skillsText = skillsCompletion.choices[0].message.content;
+      let extractedSkills: string[] = [];
+
+      try {
+        const response = JSON.parse(skillsText || "{}");
+        extractedSkills = response.skills || [];
+        extractedSkills = extractedSkills
+          .filter((skill) => typeof skill === "string" && skill.trim().length > 0)
+          .map((skill) => skill.trim())
+          .slice(0, 15);
+      } catch (error) {
+        console.error("Failed to parse skills JSON:", error);
+        extractedSkills = [];
+      }
+
+      console.log("Extracted skills from new JD:", extractedSkills);
 
       // Get skills from the most similar JD
       const mostSimilarJD = similarJDs[0];
@@ -60,50 +155,54 @@ export async function POST(req: Request) {
           name: jds.skill.name,
         })) || [];
 
-      // Get questions with confidence scores for each skill
-      const skillsWithQuestions = await Promise.all(
-        existingSkills.map(async (skill) => {
-          // First, check if questions already exist in database for this skill
-          const existingQuestions = await prisma.question.findMany({
-            where: { skillId: skill.id },
-            take: 5,
-          });
-
-          if (existingQuestions.length >= 5) {
-            console.log(
-              `Found ${existingQuestions.length} existing questions for ${skill.name} in database, using them`
-            );
-            
-            return {
-              id: skill.id,
-              name: skill.name,
-              confidence: 1.0, // Existing skills from similar JD have high confidence
-              questions: existingQuestions.map((q) => ({
-                text: q.text,
-                confidence: 1.0, // Direct database match has 100% confidence
-                source: "existing" as "existing",
-              })),
-            };
+      // Validate that the extracted skills match the similar JD skills
+      let skillsMatch = false;
+      if (extractedSkills.length > 0) {
+        for (const extractedSkill of extractedSkills) {
+          for (const existingSkill of existingSkills) {
+            // Use our enhanced text similarity for validation
+            const similarity = await calculateTextSimilarity(extractedSkill, existingSkill.name);
+            if (similarity >= 0.9) {
+              skillsMatch = true;
+              break;
+            }
           }
+          if (skillsMatch) break;
+        }
+      }
 
-          // If we don't have enough questions in database, check with vector search
+      console.log("Skills match validation:", skillsMatch);
+
+      if (!skillsMatch && extractedSkills.length > 0) {
+        console.log("Skills don't match similar JD. Treating as new JD to ensure accurate skill extraction.");
+        // Fall through to the normal extraction logic
+      } else {
+        // Skills match! Use the similar JD's skills
+        console.log("Skills match! Using existing skills from similar JD.");
+
+        // Get questions with confidence scores for each skill (10 questions per skill)
+        const skillsWithQuestions = await Promise.all(
+          existingSkills.map(async (skill) => {
+          // Get 10 questions using the enhanced vector search
           const questionsWithConfidence = await getQuestionsWithConfidence(
             skill.name,
             skill.id,
-            5
+            10
           );
 
-          // Check if we need to generate questions (similarity < 90%)
+          // Check if we need to generate questions
           const needGeneration = questionsWithConfidence.some(
             (q) => q.needsGeneration
           );
+
+          let processedQuestions = [...questionsWithConfidence];
 
           if (needGeneration) {
             const lowConfidenceQuestions = questionsWithConfidence.filter(
               (q) => q.needsGeneration
             );
             console.log(
-              `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name} (not enough in database)`
+              `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name}`
             );
 
             const questionsPrompt = `Generate ${lowConfidenceQuestions.length} technical interview questions for the skill "${skill.name}". Return the response as a JSON object with a "questions" array containing the questions as strings.`;
@@ -143,54 +242,63 @@ export async function POST(req: Request) {
               });
             }
 
-            // Replace low confidence questions with generated ones
+            // Replace placeholders with generated questions
             let generatedIndex = 0;
-            for (let i = 0; i < questionsWithConfidence.length; i++) {
-              if (
-                questionsWithConfidence[i].needsGeneration &&
-                generatedIndex < generatedQuestions.length
-              ) {
-                questionsWithConfidence[i] = {
-                  id: -1,
+            processedQuestions = questionsWithConfidence.map((q) => {
+              if (q.needsGeneration && generatedIndex < generatedQuestions.length) {
+                const newQuestion = {
+                  ...q,
                   text: generatedQuestions[generatedIndex],
-                  skillId: skill.id,
-                  skillName: skill.name,
-                  similarity: 1.0, // New generated questions have 100% confidence
+                  similarity: 1.0,
                   needsGeneration: false,
+                  source: "generated" as const,
                 };
                 generatedIndex++;
+                return newQuestion;
               }
-            }
+              return q;
+            });
           }
+
+          // Count sources
+          const existingCount = processedQuestions.filter(q => q.source === "existing").length;
+          const similarCount = processedQuestions.filter(q => q.source === "similar").length;
+          const generatedCount = processedQuestions.filter(q => q.source === "generated").length;
+
+          console.log(
+            `${skill.name}: ${existingCount} existing + ${similarCount} similar + ${generatedCount} generated = ${processedQuestions.length} total questions`
+          );
 
           return {
             id: skill.id,
             name: skill.name,
             confidence: 1.0, // Existing skills from similar JD have high confidence
-            questions: questionsWithConfidence.map((q) => ({
+            questions: processedQuestions.map((q) => ({
               text: q.text,
               confidence: q.similarity,
-              source: q.needsGeneration
-                ? "generated"
-                : ("existing" as "generated" | "existing"),
+              source: q.source,
             })),
+            existingCount,
+            similarCount,
+            generatedCount,
           };
         })
       );
 
-      return Response.json({
-        source: "similar_jd",
-        similarJDs: similarJDs.map((jd) => ({
-          id: jd.id,
-          title: jd.title,
-          similarity: jd.similarity,
-          content: jd.content.substring(0, 200) + "...",
-        })),
-        skills: skillsWithQuestions,
-        message: `Found similar job description (${(
-          similarJDs[0].similarity * 100
-        ).toFixed(1)}% match). Using existing skills.`,
-      });
+        return Response.json({
+          source: "similar_jd",
+          similarJDs: similarJDs.map((jd) => ({
+            id: jd.id,
+            title: jd.title,
+            similarity: jd.similarity,
+            content: jd.content.substring(0, 200) + "...",
+          })),
+          skills: skillsWithQuestions,
+          message: `Found similar job description (${(
+            similarJDs[0].similarity * 100
+          ).toFixed(1)}% match). Using existing skills.`,
+        });
+      }
     }
 
     // 3. No similar JD found or similarity too low, extract skills using OpenAI
@@ -198,7 +306,7 @@ export async function POST(req: Request) {
       console.log(
         `Similar JDs found but highest similarity is ${(
           similarJDs[0].similarity * 100
-        ).toFixed(1)}% (below 90% threshold). Treating as new JD.`
+        ).toFixed(1)}% (below 98% threshold). Treating as new JD to ensure accurate skill extraction.`
       );
     } else {
       console.log(
@@ -266,7 +374,7 @@ ${jobDescription}`;
       extractedSkills
     );
 
-    // Link skills to job description and get questions
+    // Link skills to job description and get questions (10 questions per skill)
     const skillsWithQuestions = await Promise.all(
       skillsWithConfidence.map(async (skillWithConf) => {
         // Link skill to job description
@@ -277,48 +385,26 @@ ${jobDescription}`;
           },
         });
 
-        // First, check if questions already exist in database for this skill
-        const existingQuestions = await prisma.question.findMany({
-          where: { skillId: skillWithConf.id },
-          take: 5,
-        });
-
-        if (existingQuestions.length >= 5) {
-          console.log(
-            `Found ${existingQuestions.length} existing questions for ${skillWithConf.name} in database, using them`
-          );
-          
-          return {
-            id: skillWithConf.id,
-            name: skillWithConf.name,
-            confidence: skillWithConf.confidence,
-            source: skillWithConf.source,
-            questions: existingQuestions.map((q) => ({
-              text: q.text,
-              confidence: 1.0, // Direct database match has 100% confidence
-              source: "existing" as "existing",
-            })),
-          };
-        }
-
-        // If we don't have enough questions in database, check with vector search
+        // Get 10 questions using the enhanced vector search
         const questionsWithConfidence = await getQuestionsWithConfidence(
           skillWithConf.name,
           skillWithConf.id,
-          5
+          10
         );
 
-        // Check if we need to generate questions (similarity < 90%)
+        // Check if we need to generate questions
         const needGeneration = questionsWithConfidence.some(
           (q) => q.needsGeneration
         );
+
+        let processedQuestions = [...questionsWithConfidence];
 
         if (needGeneration) {
           const lowConfidenceQuestions = questionsWithConfidence.filter(
             (q) => q.needsGeneration
           );
           console.log(
-            `Generating ${lowConfidenceQuestions.length} new questions for ${skillWithConf.name} (not enough in database)`
+            `Generating ${lowConfidenceQuestions.length} new questions for ${skillWithConf.name}`
           );
 
           const questionsPrompt = `Generate ${lowConfidenceQuestions.length} technical interview questions for the skill "${skillWithConf.name}". Return the response as a JSON object with a "questions" array containing the questions as strings.`;
@@ -358,38 +444,46 @@ ${jobDescription}`;
             });
           }
 
-          // Replace low confidence questions with generated ones
+          // Replace placeholders with generated questions
           let generatedIndex = 0;
-          for (let i = 0; i < questionsWithConfidence.length; i++) {
-            if (
-              questionsWithConfidence[i].needsGeneration &&
-              generatedIndex < generatedQuestions.length
-            ) {
-              questionsWithConfidence[i] = {
-                id: -1,
+          processedQuestions = questionsWithConfidence.map((q) => {
+            if (q.needsGeneration && generatedIndex < generatedQuestions.length) {
+              const newQuestion = {
+                ...q,
                 text: generatedQuestions[generatedIndex],
-                skillId: skillWithConf.id,
-                skillName: skillWithConf.name,
-                similarity: 1.0, // New generated questions have 100% confidence
+                similarity: 1.0,
                 needsGeneration: false,
+                source: "generated" as const,
               };
               generatedIndex++;
+              return newQuestion;
             }
-          }
+            return q;
+          });
         }
+
+        // Count sources
+        const existingCount = processedQuestions.filter(q => q.source === "existing").length;
+        const similarCount = processedQuestions.filter(q => q.source === "similar").length;
+        const generatedCount = processedQuestions.filter(q => q.source === "generated").length;
+
+        console.log(
+          `${skillWithConf.name}: ${existingCount} existing + ${similarCount} similar + ${generatedCount} generated = ${processedQuestions.length} total questions`
+        );
 
         return {
           id: skillWithConf.id,
           name: skillWithConf.name,
           confidence: skillWithConf.confidence,
           source: skillWithConf.source,
-          questions: questionsWithConfidence.map((q) => ({
+          questions: processedQuestions.map((q) => ({
             text: q.text,
             confidence: q.similarity,
-            source: q.needsGeneration
-              ? "generated"
-              : ("existing" as "generated" | "existing"),
+            source: q.source,
           })),
+          existingCount,
+          similarCount,
+          generatedCount,
         };
       })
     );

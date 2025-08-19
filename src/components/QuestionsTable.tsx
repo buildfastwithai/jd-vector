@@ -1,18 +1,6 @@
 "use client";
 
-interface Question {
-  text: string;
-  confidence: number;
-  source: "existing" | "generated";
-}
-
-interface Skill {
-  id: number;
-  name: string;
-  confidence: number;
-  source?: "existing" | "extracted";
-  questions: Question[];
-}
+import { Skill } from "@/types";
 
 interface QuestionsTableProps {
   skills: Skill[];
@@ -38,14 +26,16 @@ export default function QuestionsTable({ skills }: QuestionsTableProps) {
     );
   };
 
-  const getSourceBadge = (source: "existing" | "generated") => {
+  const getSourceBadge = (source: "existing" | "similar" | "generated") => {
+    const colorClasses = {
+      existing: "text-green-600 bg-green-50",
+      similar: "text-yellow-600 bg-yellow-50", 
+      generated: "text-blue-600 bg-blue-50"
+    };
+
     return (
       <span
-        className={`px-2 py-1 rounded-full text-xs font-medium ${
-          source === "existing"
-            ? "text-green-600 bg-green-50"
-            : "text-blue-600 bg-blue-50"
-        }`}
+        className={`px-2 py-1 rounded-full text-xs font-medium ${colorClasses[source]}`}
       >
         {source}
       </span>

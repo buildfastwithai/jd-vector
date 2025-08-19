@@ -1,18 +1,6 @@
 "use client";
 
-interface Question {
-  text: string;
-  confidence: number;
-  source: "existing" | "generated";
-}
-
-interface Skill {
-  id: number;
-  name: string;
-  confidence: number;
-  source?: "existing" | "extracted";
-  questions: Question[];
-}
+import { Skill } from "@/types";
 
 interface SkillsTableProps {
   skills: Skill[];
@@ -105,26 +93,19 @@ export default function SkillsTable({ skills }: SkillsTableProps) {
                       {skill.questions.length} questions
                     </span>
                     <div className="flex space-x-1">
-                      {skill.questions.some((q) => q.source === "existing") && (
+                      {(skill.existingCount || skill.questions.filter(q => q.source === "existing").length) > 0 && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          {
-                            skill.questions.filter(
-                              (q) => q.source === "existing"
-                            ).length
-                          }{" "}
-                          existing
+                          {skill.existingCount || skill.questions.filter(q => q.source === "existing").length} existing
                         </span>
                       )}
-                      {skill.questions.some(
-                        (q) => q.source === "generated"
-                      ) && (
+                      {(skill.similarCount || skill.questions.filter(q => q.source === "similar").length) > 0 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                          {skill.similarCount || skill.questions.filter(q => q.source === "similar").length} similar
+                        </span>
+                      )}
+                      {(skill.generatedCount || skill.questions.filter(q => q.source === "generated").length) > 0 && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                          {
-                            skill.questions.filter(
-                              (q) => q.source === "generated"
-                            ).length
-                          }{" "}
-                          generated
+                          {skill.generatedCount || skill.questions.filter(q => q.source === "generated").length} generated
                         </span>
                       )}
                     </div>

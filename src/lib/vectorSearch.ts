@@ -74,7 +74,12 @@ export async function searchQuestionsBySkill(
   limit: number = 10,
   minSimilarity: number = 0.6
 ): Promise<SimilarQuestion[]> {
-  return searchSimilarQuestions(skillName, limit, minSimilarity);
+  // Use embedding-based search for skill-related questions
+  console.log(`Searching for questions related to skill: ${skillName} using embeddings`);
+  
+  // Generate search query that includes the skill and question context
+  const searchQuery = `${skillName} interview questions technical skills assessment`;
+  return searchSimilarQuestions(searchQuery, limit, minSimilarity);
 }
 
 export interface SkillWithConfidence {
@@ -82,6 +87,150 @@ export interface SkillWithConfidence {
   name: string;
   confidence: number;
   source: "existing" | "extracted";
+}
+
+// Enhanced text similarity function for skill matching
+function normalizeSkillName(skillName: string): string {
+  return skillName
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "") // Remove special characters
+    .replace(/\s+/g, " ") // Normalize whitespace
+    .trim();
+}
+
+// Cache for AI-generated aliases to avoid repeated API calls
+const aliasCache = new Map<string, string[]>();
+
+async function getSkillAliases(skillName: string): Promise<string[]> {
+  const normalized = normalizeSkillName(skillName);
+  
+  // Check cache first
+  if (aliasCache.has(normalized)) {
+    return aliasCache.get(normalized)!;
+  }
+
+  const aliases = [normalized, skillName.trim()]; // Include original form
+
+  try {
+    // Use AI to generate aliases for the skill
+    const { openai } = await import("./openai");
+    
+    const aliasPrompt = `Generate common aliases, abbreviations, and alternative names for the technical skill "${skillName}". 
+Include variations with:
+- Different spacing (e.g., "Next.js" vs "NextJS" vs "Next JS")
+- Different formatting (e.g., "React.js" vs "ReactJS" vs "React")
+- Common abbreviations (e.g., "JavaScript" vs "JS")
+- Different capitalization
+- Alternative names used in the industry
+
+Return ONLY a JSON object with an "aliases" array containing strings. Maximum 8 aliases.
+
+Example for "React":
+{"aliases": ["react", "reactjs", "react.js", "react js"]}`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1",
+      messages: [{ role: "user", content: aliasPrompt }],
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      max_tokens: 200,
+    });
+
+    const response = JSON.parse(completion.choices[0].message.content || "{}");
+    const aiAliases = response.aliases || [];
+
+    // Add AI-generated aliases
+    if (Array.isArray(aiAliases)) {
+      aiAliases.forEach((alias: string) => {
+        if (typeof alias === "string" && alias.trim().length > 0) {
+          aliases.push(normalizeSkillName(alias));
+        }
+      });
+    }
+
+    console.log(`Generated aliases for "${skillName}":`, aliases);
+  } catch (error) {
+    console.error("Failed to generate AI aliases for", skillName, error);
+    // Fallback to basic variations if AI fails
+    const variations = [
+      skillName.toLowerCase(),
+      skillName.replace(/\s+/g, ""),
+      skillName.replace(/\./g, ""),
+      skillName.replace(/\s+/g, "."),
+    ];
+    aliases.push(...variations);
+  }
+
+  const uniqueAliases = [...new Set(aliases)];
+  aliasCache.set(normalized, uniqueAliases);
+  return uniqueAliases;
+}
+
+async function calculateTextSimilarity(str1: string, str2: string): Promise<number> {
+  const norm1 = normalizeSkillName(str1);
+  const norm2 = normalizeSkillName(str2);
+
+  // Exact match
+  if (norm1 === norm2) return 1.0;
+
+  // Check AI-generated aliases
+  try {
+    const aliases1 = await getSkillAliases(str1);
+    const aliases2 = await getSkillAliases(str2);
+
+    for (const alias1 of aliases1) {
+      for (const alias2 of aliases2) {
+        if (alias1 === alias2) return 0.95; // High confidence for alias matches
+      }
+    }
+  } catch (error) {
+    console.error("Error getting aliases for similarity check:", error);
+  }
+
+  // Substring match
+  if (norm1.includes(norm2) || norm2.includes(norm1)) {
+    const longer = norm1.length > norm2.length ? norm1 : norm2;
+    const shorter = norm1.length > norm2.length ? norm2 : norm1;
+    return shorter.length / longer.length * 0.9; // Scaled down for partial matches
+  }
+
+  // Levenshtein distance for close matches
+  const maxLen = Math.max(norm1.length, norm2.length);
+  if (maxLen === 0) return 1.0;
+
+  const distance = levenshteinDistance(norm1, norm2);
+  const similarity = (maxLen - distance) / maxLen;
+
+  // Only return if similarity is reasonably high
+  return similarity >= 0.7 ? similarity * 0.8 : 0;
+}
+
+function levenshteinDistance(str1: string, str2: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[str2.length][str1.length];
 }
 
 export async function searchSkillsForJobDescription(
@@ -94,49 +243,59 @@ export async function searchSkillsForJobDescription(
   const existingSkills = await prisma.skill.findMany();
 
   for (const extractedSkill of extractedSkills) {
-    // Find exact match first
-    const exactMatch = existingSkills.find(
-      (skill) => skill.name.toLowerCase() === extractedSkill.toLowerCase()
-    );
-
-    if (exactMatch) {
-      skillsWithConfidence.push({
-        id: exactMatch.id,
-        name: exactMatch.name,
-        confidence: 1.0,
-        source: "existing",
-      });
-      continue;
-    }
-
-    // Calculate semantic similarity with existing skills
-    const extractedSkillEmbedding = await getEmbedding(extractedSkill);
     let bestMatch: SkillWithConfidence | null = null;
 
+    // First, check text similarity (exact match and AI-generated aliases)
     for (const existingSkill of existingSkills) {
-      const skillEmbedding = await getEmbedding(existingSkill.name);
-      const similarity = cosineSimilarity(
-        extractedSkillEmbedding,
-        skillEmbedding
-      );
-
-      if (
-        similarity >= 0.8 &&
-        (!bestMatch || similarity > bestMatch.confidence)
-      ) {
+      const textSimilarity = await calculateTextSimilarity(extractedSkill, existingSkill.name);
+      
+      if (textSimilarity >= 0.9 && (!bestMatch || textSimilarity > bestMatch.confidence)) {
         bestMatch = {
           id: existingSkill.id,
           name: existingSkill.name,
-          confidence: similarity,
+          confidence: textSimilarity,
           source: "existing",
         };
       }
     }
 
-    if (bestMatch) {
+    // If no good text match, try semantic similarity with embeddings
+    if (!bestMatch || bestMatch.confidence < 0.95) {
+      console.log(`No high-confidence text match for "${extractedSkill}". Trying semantic similarity...`);
+      const extractedSkillEmbedding = await getEmbedding(extractedSkill);
+
+      for (const existingSkill of existingSkills) {
+        const skillEmbedding = await getEmbedding(existingSkill.name);
+        const semanticSimilarity = cosineSimilarity(
+          extractedSkillEmbedding,
+          skillEmbedding
+        );
+
+        // Combine text and semantic similarity, prioritizing text similarity
+        const combinedSimilarity = bestMatch && bestMatch.confidence > semanticSimilarity 
+          ? bestMatch.confidence 
+          : semanticSimilarity;
+
+        if (
+          semanticSimilarity >= 0.8 &&
+          (!bestMatch || combinedSimilarity > bestMatch.confidence)
+        ) {
+          bestMatch = {
+            id: existingSkill.id,
+            name: existingSkill.name,
+            confidence: semanticSimilarity,
+            source: "existing",
+          };
+        }
+      }
+    }
+
+    if (bestMatch && bestMatch.confidence >= 0.8) {
+      console.log(`Matched "${extractedSkill}" → "${bestMatch.name}" (${(bestMatch.confidence * 100).toFixed(1)}%)`);
       skillsWithConfidence.push(bestMatch);
     } else {
       // Create new skill
+      console.log(`Creating new skill: "${extractedSkill}"`);
       const newSkill = await prisma.skill.create({
         data: { name: extractedSkill },
       });
@@ -155,59 +314,84 @@ export async function searchSkillsForJobDescription(
 
 export interface QuestionWithConfidence extends SimilarQuestion {
   needsGeneration: boolean;
+  source: "existing" | "similar" | "generated";
 }
 
 export async function getQuestionsWithConfidence(
   skillName: string,
   skillId: number,
-  limit: number = 5
+  limit: number = 10
 ): Promise<QuestionWithConfidence[]> {
-  // First try to get questions directly by skill ID
-  const directQuestions = await getQuestionsBySkillId(skillId, limit);
+  // Always aim for 7 existing + 3 new pattern when limit is 10
+  const maxExistingQuestions = limit === 10 ? 7 : Math.ceil(limit * 0.7);
+  const targetNewQuestions = limit - maxExistingQuestions;
 
-  if (directQuestions.length >= limit) {
-    return directQuestions.map((q) => ({
-      ...q,
-      needsGeneration: false,
-    }));
-  }
+  // First try to get questions directly by skill ID (existing questions)
+  const directQuestions = await getQuestionsBySkillId(skillId, maxExistingQuestions);
 
-  // Then try vector search for similar questions
-  const vectorQuestions = await searchQuestionsBySkill(
-    skillName,
-    limit - directQuestions.length,
-    0.9 // 90% similarity threshold
-  );
-
-  // Filter out duplicates
-  const uniqueVectorQuestions = vectorQuestions.filter(
-    (vq) => !directQuestions.some((dq) => dq.id === vq.id)
-  );
-
-  const allQuestions = [...directQuestions, ...uniqueVectorQuestions];
-
-  // If we still don't have enough questions with 90% confidence, mark for generation
-  const questionsWithConfidence = allQuestions.slice(0, limit).map((q) => ({
+  // Mark direct questions as existing
+  const existingQuestions: QuestionWithConfidence[] = directQuestions.map((q) => ({
     ...q,
-    needsGeneration: q.similarity < 0.9,
+    needsGeneration: false,
+    source: "existing" as const,
   }));
 
-  // If we have fewer than the limit, we'll need to generate more
-  if (questionsWithConfidence.length < limit) {
-    const needed = limit - questionsWithConfidence.length;
+  console.log(`For skill ${skillName}: Found ${existingQuestions.length} existing questions, targeting ${targetNewQuestions} new questions`);
+
+  // Don't return early - always try to get the remaining questions
+
+  // Calculate how many more questions we need
+  const remainingQuestions = limit - existingQuestions.length;
+
+  if (remainingQuestions <= 0) {
+    return existingQuestions;
+  }
+
+  // Then try vector search for similar questions from other skills using embeddings
+  console.log(`Searching for ${remainingQuestions} additional questions for ${skillName} using embeddings`);
+  
+  const vectorQuestions = await searchQuestionsBySkill(
+    skillName,
+    remainingQuestions * 3, // Get more to have better options
+    0.6 // Lower threshold to find more similar questions
+  );
+
+  // Filter out duplicates and questions from the same skill
+  const uniqueVectorQuestions = vectorQuestions.filter(
+    (vq) => vq.skillId !== skillId && !existingQuestions.some((dq) => dq.id === vq.id)
+  );
+
+  console.log(`Found ${uniqueVectorQuestions.length} potential similar questions for ${skillName}`);
+
+  // Mark vector questions as similar and determine if they need generation
+  const similarQuestions: QuestionWithConfidence[] = uniqueVectorQuestions
+    .slice(0, remainingQuestions) // Limit to what we need
+    .map((q) => ({
+      ...q,
+      needsGeneration: q.similarity < 0.9,
+      source: q.similarity >= 0.9 ? ("similar" as const) : ("generated" as const),
+    }));
+
+  // Combine existing and similar questions
+  const allQuestions = [...existingQuestions, ...similarQuestions];
+
+  // If we still don't have enough questions, add placeholders for generation
+  if (allQuestions.length < limit) {
+    const needed = limit - allQuestions.length;
     for (let i = 0; i < needed; i++) {
-      questionsWithConfidence.push({
+      allQuestions.push({
         id: -1, // Placeholder for generated questions
         text: `Generated question ${i + 1} needed`,
         skillId,
         skillName,
         similarity: 0.0,
         needsGeneration: true,
+        source: "generated" as const,
       });
     }
   }
 
-  return questionsWithConfidence;
+  return allQuestions;
 }
 
 export async function getQuestionsBySkillId(

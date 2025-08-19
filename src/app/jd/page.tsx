@@ -3,35 +3,7 @@
 import { useState } from "react";
 import SkillsTable from "@/components/SkillsTable";
 import QuestionsTable from "@/components/QuestionsTable";
-
-interface Question {
-  text: string;
-  confidence: number;
-  source: "existing" | "generated";
-}
-
-interface Skill {
-  id: number;
-  name: string;
-  confidence: number;
-  source?: "existing" | "extracted";
-  questions: Question[];
-}
-
-interface SimilarJD {
-  id: number;
-  title: string | null;
-  similarity: number;
-  content: string;
-}
-
-interface AnalyzeResponse {
-  source: "similar_jd" | "extracted";
-  jobDescriptionId?: number;
-  skills: Skill[];
-  similarJDs?: SimilarJD[];
-  message: string;
-}
+import { AnalyzeResponse } from "@/types";
 
 export default function JobDescriptionAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");

@@ -1,7 +1,7 @@
 import { getEmbedding } from "@/lib/embedding";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/prisma";
-import { searchQuestionsBySkill } from "@/lib/vectorSearch";
+import { searchQuestionsBySkill, getQuestionsWithConfidence } from "@/lib/vectorSearch";
 
 export async function POST(req: Request) {
   const { skillName } = await req.json();
@@ -12,58 +12,45 @@ export async function POST(req: Request) {
     skill = await prisma.skill.create({ data: { name: skillName } });
   }
 
-  // 2. First, check if questions already exist in database for this skill
-  const existingQuestions = await prisma.question.findMany({
-    where: { skillId: skill.id },
-    take: 5,
-  });
+  // 2. Use the enhanced vector search to get 10 questions (7 existing + 3 new pattern)
+  const questionsWithConfidence = await getQuestionsWithConfidence(
+    skillName,
+    skill.id,
+    10
+  );
 
-  if (existingQuestions.length >= 5) {
+  // If we have enough questions and don't need generation
+  const needGeneration = questionsWithConfidence.some(q => q.needsGeneration);
+  
+  if (!needGeneration) {
+    const existingCount = questionsWithConfidence.filter(q => q.source === "existing").length;
+    const similarCount = questionsWithConfidence.filter(q => q.source === "similar").length;
+    
     console.log(
-      `Found ${existingQuestions.length} existing questions for skill: ${skillName} in database, using them`
+      `Found ${questionsWithConfidence.length} questions for skill: ${skillName} (${existingCount} existing, ${similarCount} similar)`
     );
+    
     return Response.json({
-      questions: existingQuestions.map((q) => q.text),
-      similarQuestions: existingQuestions.map((q) => ({
-        text: q.text,
-        skillName: skillName,
-        similarity: 1.0,
-      })),
-      source: "database",
-      existingCount: existingQuestions.length,
-      generatedCount: 0,
-    });
-  }
-
-  // 3. If not enough in database, search for similar questions using vector search
-  const similarQuestions = await searchQuestionsBySkill(skillName, 10, 0.6);
-
-  if (similarQuestions.length >= 5) {
-    console.log(
-      `Found ${similarQuestions.length} similar questions for skill: ${skillName}, using first 5`
-    );
-    const selectedQuestions = similarQuestions.slice(0, 5);
-    return Response.json({
-      questions: selectedQuestions.map((q) => q.text),
-      similarQuestions: selectedQuestions.map((q) => ({
+      questions: questionsWithConfidence.map((q) => q.text),
+      similarQuestions: questionsWithConfidence.map((q) => ({
         text: q.text,
         skillName: q.skillName,
         similarity: q.similarity,
+        source: q.source,
       })),
-      source: "vector_search",
-      existingCount: 5,
+      source: existingCount > 0 ? "mixed" : "vector_search",
+      existingCount,
+      similarCount,
       generatedCount: 0,
     });
   }
 
-  const existingCount = Math.max(
-    existingQuestions.length,
-    similarQuestions.length
-  );
-  const needToGenerate = 5 - existingCount;
+  const needToGenerate = questionsWithConfidence.filter(q => q.needsGeneration).length;
+  const existingCount = questionsWithConfidence.filter(q => q.source === "existing").length;
+  const similarCount = questionsWithConfidence.filter(q => q.source === "similar").length;
 
   console.log(
-    `Found ${existingCount} questions for skill: ${skillName} (${existingQuestions.length} from database, ${similarQuestions.length} from vector search). Generating ${needToGenerate} new questions.`
+    `Found ${existingCount + similarCount} questions for skill: ${skillName} (${existingCount} existing, ${similarCount} similar). Generating ${needToGenerate} new questions.`
   );
 
   // 3. Generate new questions with OpenAI
@@ -105,30 +92,39 @@ export async function POST(req: Request) {
     `Generated and stored ${questionsText.length} new questions for skill: ${skillName}`
   );
 
-  // Combine existing and new questions to make exactly 5
-  const allQuestions = [
-    ...existingQuestions.map((q) => q.text),
-    ...similarQuestions.map((q) => q.text),
-    ...questionsText,
-  ].slice(0, 5);
+  // Replace placeholders with generated questions
+  let generatedIndex = 0;
+  const finalQuestions = questionsWithConfidence.map((q) => {
+    if (q.needsGeneration && generatedIndex < questionsText.length) {
+      const newQuestion = {
+        ...q,
+        text: questionsText[generatedIndex],
+        similarity: 1.0,
+        needsGeneration: false,
+        source: "generated" as const,
+      };
+      generatedIndex++;
+      return newQuestion;
+    }
+    return q;
+  });
+
+  const finalExistingCount = finalQuestions.filter(q => q.source === "existing").length;
+  const finalSimilarCount = finalQuestions.filter(q => q.source === "similar").length;
+  const finalGeneratedCount = finalQuestions.filter(q => q.source === "generated").length;
 
   return Response.json({
-    questions: allQuestions,
-    similarQuestions: [
-      ...existingQuestions.map((q) => ({
-        text: q.text,
-        skillName: skillName,
-        similarity: 1.0,
-      })),
-      ...similarQuestions.map((q) => ({
-        text: q.text,
-        skillName: q.skillName,
-        similarity: q.similarity,
-      })),
-    ],
+    questions: finalQuestions.map((q) => q.text),
+    similarQuestions: finalQuestions.map((q) => ({
+      text: q.text,
+      skillName: q.skillName,
+      similarity: q.similarity,
+      source: q.source,
+    })),
     source: "mixed",
-    existingCount: existingCount,
-    generatedCount: questionsText.length,
-    message: `Using ${existingCount} existing questions and generated ${questionsText.length} new questions.`,
+    existingCount: finalExistingCount,
+    similarCount: finalSimilarCount,
+    generatedCount: finalGeneratedCount,
+    message: `Using ${finalExistingCount} existing + ${finalSimilarCount} similar + ${finalGeneratedCount} generated = ${finalQuestions.length} total questions.`,
   });
 }

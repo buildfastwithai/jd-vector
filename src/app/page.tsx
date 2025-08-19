@@ -1,21 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-interface SimilarQuestion {
-  text: string;
-  skillName: string;
-  similarity: number;
-}
-
-interface GenerateResponse {
-  questions: string[];
-  similarQuestions?: SimilarQuestion[];
-  source: "vector_search" | "generated" | "mixed";
-  message?: string;
-  existingCount?: number;
-  generatedCount?: number;
-}
+import { GenerateResponse, SimilarQuestion } from "@/types";
 
 export default function Home() {
   const [skill, setSkill] = useState("");
@@ -26,6 +12,7 @@ export default function Home() {
   const [source, setSource] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [existingCount, setExistingCount] = useState<number>(0);
+  const [similarCount, setSimilarCount] = useState<number>(0);
   const [generatedCount, setGeneratedCount] = useState<number>(0);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -43,6 +30,7 @@ export default function Home() {
       setSource(data.source);
       setMessage(data.message || "");
       setExistingCount(data.existingCount || 0);
+      setSimilarCount(data.similarCount || 0);
       setGeneratedCount(data.generatedCount || 0);
     } catch (error) {
       console.error("Error generating questions:", error);
@@ -51,6 +39,7 @@ export default function Home() {
       setSource("");
       setMessage("");
       setExistingCount(0);
+      setSimilarCount(0);
       setGeneratedCount(0);
     } finally {
       setIsGenerating(false);
@@ -94,6 +83,11 @@ export default function Home() {
                 {existingCount > 0 && (
                   <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
                     {existingCount} existing
+                  </span>
+                )}
+                {similarCount > 0 && (
+                  <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                    {similarCount} similar
                   </span>
                 )}
                 {generatedCount > 0 && (
