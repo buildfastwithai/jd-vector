@@ -75,8 +75,10 @@ export async function searchQuestionsBySkill(
   minSimilarity: number = 0.6
 ): Promise<SimilarQuestion[]> {
   // Use embedding-based search for skill-related questions
-  console.log(`Searching for questions related to skill: ${skillName} using embeddings`);
-  
+  console.log(
+    `Searching for questions related to skill: ${skillName} using embeddings`
+  );
+
   // Generate search query that includes the skill and question context
   const searchQuery = `${skillName} interview questions technical skills assessment`;
   return searchSimilarQuestions(searchQuery, limit, minSimilarity);
@@ -103,7 +105,7 @@ const aliasCache = new Map<string, string[]>();
 
 async function getSkillAliases(skillName: string): Promise<string[]> {
   const normalized = normalizeSkillName(skillName);
-  
+
   // Check in-memory cache first (fastest)
   if (aliasCache.has(normalized)) {
     return aliasCache.get(normalized)!;
@@ -114,20 +116,33 @@ async function getSkillAliases(skillName: string): Promise<string[]> {
     const skill = await prisma.skill.findFirst({
       where: {
         OR: [
-          { name: { equals: skillName, mode: 'insensitive' } },
-          { aliases: { some: { alias: { equals: normalized, mode: 'insensitive' } } } }
-        ]
+          { name: { equals: skillName, mode: "insensitive" } },
+          {
+            aliases: {
+              some: { alias: { equals: normalized, mode: "insensitive" } },
+            },
+          },
+        ],
       },
       include: {
-        aliases: true
-      }
+        aliases: true,
+      },
     });
 
     if (skill && skill.aliases.length > 0) {
-      console.log(`Found ${skill.aliases.length} existing aliases for "${skillName}" in database`);
-      const dbAliases = [normalized, skillName.trim(), skill.name, ...skill.aliases.map(a => a.alias)];
-      const uniqueAliases = [...new Set(dbAliases.map(a => normalizeSkillName(a)))];
-      
+      console.log(
+        `Found ${skill.aliases.length} existing aliases for "${skillName}" in database`
+      );
+      const dbAliases = [
+        normalized,
+        skillName.trim(),
+        skill.name,
+        ...skill.aliases.map((a) => a.alias),
+      ];
+      const uniqueAliases = [
+        ...new Set(dbAliases.map((a) => normalizeSkillName(a))),
+      ];
+
       // Cache in memory for future use
       aliasCache.set(normalized, uniqueAliases);
       return uniqueAliases;
@@ -137,13 +152,15 @@ async function getSkillAliases(skillName: string): Promise<string[]> {
   }
 
   // No aliases in database, generate with AI
-  console.log(`No aliases found for "${skillName}" in database. Generating with AI...`);
+  console.log(
+    `No aliases found for "${skillName}" in database. Generating with AI...`
+  );
   const aliases = [normalized, skillName.trim()]; // Include original form
 
   try {
     // Use AI to generate aliases for the skill
     const { openai } = await import("./openai");
-    
+
     const aliasPrompt = `Generate common aliases, abbreviations, and alternative names for the technical skill "${skillName}". 
 Include variations with:
 - Different spacing (e.g., "Next.js" vs "NextJS" vs "Next JS")
@@ -177,11 +194,13 @@ Example for "React":
       });
     }
 
-    console.log(`Generated ${aliases.length} aliases for "${skillName}":`, aliases);
+    console.log(
+      `Generated ${aliases.length} aliases for "${skillName}":`,
+      aliases
+    );
 
     // Store aliases in database for future use
     await storeSkillAliases(skillName, aliases);
-
   } catch (error) {
     console.error("Failed to generate AI aliases for", skillName, error);
     // Fallback to basic variations if AI fails
@@ -199,54 +218,66 @@ Example for "React":
   return uniqueAliases;
 }
 
-async function storeSkillAliases(skillName: string, aliases: string[]): Promise<void> {
+async function storeSkillAliases(
+  skillName: string,
+  aliases: string[]
+): Promise<void> {
   try {
     // First, find or create the skill
     let skill = await prisma.skill.findFirst({
-      where: { name: { equals: skillName, mode: 'insensitive' } }
+      where: { name: { equals: skillName, mode: "insensitive" } },
     });
 
     if (!skill) {
       skill = await prisma.skill.create({
-        data: { name: skillName }
+        data: { name: skillName },
       });
     }
 
     // Store each alias (skip duplicates)
     for (const alias of aliases) {
       const normalizedAlias = normalizeSkillName(alias);
-      if (normalizedAlias && normalizedAlias !== normalizeSkillName(skill.name)) {
+      if (
+        normalizedAlias &&
+        normalizedAlias !== normalizeSkillName(skill.name)
+      ) {
         try {
           await prisma.skillAlias.upsert({
             where: {
               skillId_alias: {
                 skillId: skill.id,
-                alias: normalizedAlias
-              }
+                alias: normalizedAlias,
+              },
             },
             update: {}, // No update needed if exists
             create: {
               skillId: skill.id,
-              alias: normalizedAlias
-            }
+              alias: normalizedAlias,
+            },
           });
         } catch (error) {
           // Ignore duplicate errors, continue with other aliases
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          if (!errorMessage.includes('unique constraint')) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          if (!errorMessage.includes("unique constraint")) {
             console.error("Error storing alias:", normalizedAlias, error);
           }
         }
       }
     }
 
-    console.log(`Stored ${aliases.length} aliases for skill "${skillName}" in database`);
+    console.log(
+      `Stored ${aliases.length} aliases for skill "${skillName}" in database`
+    );
   } catch (error) {
     console.error("Error storing skill aliases:", error);
   }
 }
 
-async function calculateTextSimilarity(extractedSkill: string, existingSkill: string): Promise<number> {
+async function calculateTextSimilarity(
+  extractedSkill: string,
+  existingSkill: string
+): Promise<number> {
   const norm1 = normalizeSkillName(extractedSkill);
   const norm2 = normalizeSkillName(existingSkill);
 
@@ -257,7 +288,7 @@ async function calculateTextSimilarity(extractedSkill: string, existingSkill: st
   // Only generate aliases for the extracted skill, not the existing skill
   try {
     const extractedSkillAliases = await getSkillAliases(extractedSkill);
-    
+
     // Check if existing skill matches any alias of extracted skill
     for (const alias of extractedSkillAliases) {
       if (normalizeSkillName(alias) === norm2) {
@@ -272,7 +303,7 @@ async function calculateTextSimilarity(extractedSkill: string, existingSkill: st
   if (norm1.includes(norm2) || norm2.includes(norm1)) {
     const longer = norm1.length > norm2.length ? norm1 : norm2;
     const shorter = norm1.length > norm2.length ? norm2 : norm1;
-    return shorter.length / longer.length * 0.9; // Scaled down for partial matches
+    return (shorter.length / longer.length) * 0.9; // Scaled down for partial matches
   }
 
   // Levenshtein distance for close matches
@@ -328,9 +359,15 @@ export async function searchSkillsForJobDescription(
 
     // First, check text similarity (exact match and AI-generated aliases)
     for (const existingSkill of existingSkills) {
-      const textSimilarity = await calculateTextSimilarity(extractedSkill, existingSkill.name);
-      
-      if (textSimilarity >= 0.9 && (!bestMatch || textSimilarity > bestMatch.confidence)) {
+      const textSimilarity = await calculateTextSimilarity(
+        extractedSkill,
+        existingSkill.name
+      );
+
+      if (
+        textSimilarity >= 0.9 &&
+        (!bestMatch || textSimilarity > bestMatch.confidence)
+      ) {
         bestMatch = {
           id: existingSkill.id,
           name: existingSkill.name,
@@ -342,7 +379,9 @@ export async function searchSkillsForJobDescription(
 
     // If no good text match, try semantic similarity with embeddings
     if (!bestMatch || bestMatch.confidence < 0.95) {
-      console.log(`No high-confidence text match for "${extractedSkill}". Trying semantic similarity...`);
+      console.log(
+        `No high-confidence text match for "${extractedSkill}". Trying semantic similarity...`
+      );
       const extractedSkillEmbedding = await getEmbedding(extractedSkill);
 
       for (const existingSkill of existingSkills) {
@@ -353,9 +392,10 @@ export async function searchSkillsForJobDescription(
         );
 
         // Combine text and semantic similarity, prioritizing text similarity
-        const combinedSimilarity = bestMatch && bestMatch.confidence > semanticSimilarity 
-          ? bestMatch.confidence 
-          : semanticSimilarity;
+        const combinedSimilarity =
+          bestMatch && bestMatch.confidence > semanticSimilarity
+            ? bestMatch.confidence
+            : semanticSimilarity;
 
         if (
           semanticSimilarity >= 0.8 &&
@@ -372,12 +412,16 @@ export async function searchSkillsForJobDescription(
     }
 
     if (bestMatch && bestMatch.confidence >= 0.8) {
-      console.log(`Matched "${extractedSkill}" → "${bestMatch.name}" (${(bestMatch.confidence * 100).toFixed(1)}%)`);
+      console.log(
+        `Matched "${extractedSkill}" → "${bestMatch.name}" (${(
+          bestMatch.confidence * 100
+        ).toFixed(1)}%)`
+      );
       skillsWithConfidence.push(bestMatch);
     } else {
       // Create new skill or find existing one by name
       console.log(`Creating new skill: "${extractedSkill}"`);
-      
+
       try {
         const newSkill = await prisma.skill.create({
           data: { name: extractedSkill },
@@ -392,11 +436,13 @@ export async function searchSkillsForJobDescription(
       } catch (error) {
         // If skill already exists due to race condition, find it
         const existingSkill = await prisma.skill.findUnique({
-          where: { name: extractedSkill }
+          where: { name: extractedSkill },
         });
-        
+
         if (existingSkill) {
-          console.log(`Found existing skill after create failed: "${extractedSkill}"`);
+          console.log(
+            `Found existing skill after create failed: "${extractedSkill}"`
+          );
           skillsWithConfidence.push({
             id: existingSkill.id,
             name: existingSkill.name,
@@ -404,7 +450,10 @@ export async function searchSkillsForJobDescription(
             source: "extracted",
           });
         } else {
-          console.error(`Failed to create or find skill: "${extractedSkill}"`, error);
+          console.error(
+            `Failed to create or find skill: "${extractedSkill}"`,
+            error
+          );
           // Skip this skill if we can't create or find it
         }
       }
@@ -429,16 +478,23 @@ export async function getQuestionsWithConfidence(
   const targetNewQuestions = limit - maxExistingQuestions;
 
   // First try to get questions directly by skill ID (existing questions)
-  const directQuestions = await getQuestionsBySkillId(skillId, maxExistingQuestions);
+  const directQuestions = await getQuestionsBySkillId(
+    skillId,
+    maxExistingQuestions
+  );
 
   // Mark direct questions as existing
-  const existingQuestions: QuestionWithConfidence[] = directQuestions.map((q) => ({
-    ...q,
-    needsGeneration: false,
-    source: "existing" as const,
-  }));
+  const existingQuestions: QuestionWithConfidence[] = directQuestions.map(
+    (q) => ({
+      ...q,
+      needsGeneration: false,
+      source: "existing" as const,
+    })
+  );
 
-  console.log(`For skill ${skillName}: Found ${existingQuestions.length} existing questions, targeting ${targetNewQuestions} new questions`);
+  console.log(
+    `For skill ${skillName}: Found ${existingQuestions.length} existing questions, targeting ${targetNewQuestions} new questions`
+  );
 
   // Don't return early - always try to get the remaining questions
 
@@ -450,8 +506,10 @@ export async function getQuestionsWithConfidence(
   }
 
   // Then try vector search for similar questions from other skills using embeddings
-  console.log(`Searching for ${remainingQuestions} additional questions for ${skillName} using embeddings`);
-  
+  console.log(
+    `Searching for ${remainingQuestions} additional questions for ${skillName} using embeddings`
+  );
+
   const vectorQuestions = await searchQuestionsBySkill(
     skillName,
     remainingQuestions * 3, // Get more to have better options
@@ -460,10 +518,13 @@ export async function getQuestionsWithConfidence(
 
   // Filter out duplicates and questions from the same skill
   const uniqueVectorQuestions = vectorQuestions.filter(
-    (vq) => vq.skillId !== skillId && !existingQuestions.some((dq) => dq.id === vq.id)
+    (vq) =>
+      vq.skillId !== skillId && !existingQuestions.some((dq) => dq.id === vq.id)
   );
 
-  console.log(`Found ${uniqueVectorQuestions.length} potential similar questions for ${skillName}`);
+  console.log(
+    `Found ${uniqueVectorQuestions.length} potential similar questions for ${skillName}`
+  );
 
   // Mark vector questions as similar and determine if they need generation
   const similarQuestions: QuestionWithConfidence[] = uniqueVectorQuestions
@@ -471,7 +532,8 @@ export async function getQuestionsWithConfidence(
     .map((q) => ({
       ...q,
       needsGeneration: q.similarity < 0.9,
-      source: q.similarity >= 0.9 ? ("similar" as const) : ("generated" as const),
+      source:
+        q.similarity >= 0.9 ? ("similar" as const) : ("generated" as const),
     }));
 
   // Combine existing and similar questions

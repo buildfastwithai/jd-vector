@@ -25,18 +25,18 @@ function getSkillAliases(skillName: string): string[] {
   const aliases = [normalized];
 
   const mappings: Record<string, string[]> = {
-    "react": ["reactjs", "react js", "react.js"],
-    "reactjs": ["react", "react js", "react.js"],
+    react: ["reactjs", "react js", "react.js"],
+    reactjs: ["react", "react js", "react.js"],
     "react js": ["react", "reactjs", "react.js"],
     "react.js": ["react", "reactjs", "react js"],
-    "nextjs": ["next js", "next.js", "nextjs", "next"],
+    nextjs: ["next js", "next.js", "nextjs", "next"],
     "next js": ["nextjs", "next.js", "next"],
     "next.js": ["nextjs", "next js", "next"],
-    "next": ["nextjs", "next js", "next.js"],
-    "nodejs": ["node js", "node.js", "node"],
+    next: ["nextjs", "next js", "next.js"],
+    nodejs: ["node js", "node.js", "node"],
     "node js": ["nodejs", "node.js", "node"],
     "node.js": ["nodejs", "node js", "node"],
-    "node": ["nodejs", "node js", "node.js"],
+    node: ["nodejs", "node js", "node.js"],
   };
 
   if (mappings[normalized]) {
@@ -70,7 +70,7 @@ function calculateTextSimilarity(str1: string, str2: string): number {
   if (norm1.includes(norm2) || norm2.includes(norm1)) {
     const longer = norm1.length > norm2.length ? norm1 : norm2;
     const shorter = norm1.length > norm2.length ? norm2 : norm1;
-    return shorter.length / longer.length * 0.9;
+    return (shorter.length / longer.length) * 0.9;
   }
 
   return 0;
@@ -97,12 +97,12 @@ class ProgressReporter {
           phase,
           message,
           progress,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
         const chunk = this.encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
         this.controller!.enqueue(chunk);
       } catch (error) {
-        console.error('Error sending progress update:', error);
+        console.error("Error sending progress update:", error);
         this.closed = true;
       }
     }
@@ -113,16 +113,16 @@ class ProgressReporter {
     if (this.isControllerReady()) {
       try {
         const data = {
-          type: 'complete',
+          type: "complete",
           result,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
         const chunk = this.encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
         this.controller!.enqueue(chunk);
         this.controller!.close();
         this.closed = true;
       } catch (error) {
-        console.error('Error sending completion:', error);
+        console.error("Error sending completion:", error);
         this.closed = true;
       }
     }
@@ -132,20 +132,20 @@ class ProgressReporter {
     if (this.isControllerReady()) {
       try {
         const data = {
-          type: 'error',
+          type: "error",
           error,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
         const chunk = this.encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
         this.controller!.enqueue(chunk);
         this.controller!.close();
         this.closed = true;
       } catch (controllerError) {
-        console.error('Error sending error message:', controllerError);
+        console.error("Error sending error message:", controllerError);
         this.closed = true;
       }
     }
-    console.error('Analysis error:', error);
+    console.error("Analysis error:", error);
   }
 }
 
@@ -164,27 +164,31 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       start(controller) {
         const reporter = new ProgressReporter(controller);
-        analyzeWithProgress(jobDescription, title, reporter)
-          .catch(error => {
-            console.error("Analysis failed:", error);
-            const errorMessage = error instanceof Error ? error.message : "Analysis failed";
-            reporter.error(errorMessage);
-          });
-      }
+        analyzeWithProgress(jobDescription, title, reporter).catch((error) => {
+          console.error("Analysis failed:", error);
+          const errorMessage =
+            error instanceof Error ? error.message : "Analysis failed";
+          reporter.error(errorMessage);
+        });
+      },
     });
 
     return new Response(stream, {
       headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
       },
     });
   }
 
   // Fallback to regular JSON response
   try {
-    const result = await analyzeWithProgress(jobDescription, title, new ProgressReporter());
+    const result = await analyzeWithProgress(
+      jobDescription,
+      title,
+      new ProgressReporter()
+    );
     return Response.json(result);
   } catch (error) {
     console.error("Error analyzing job description:", error);
@@ -195,16 +199,26 @@ export async function POST(req: Request) {
   }
 }
 
-async function analyzeWithProgress(jobDescription: string, title: string | null, reporter: ProgressReporter) {
+async function analyzeWithProgress(
+  jobDescription: string,
+  title: string | null,
+  reporter: ProgressReporter
+) {
   try {
     reporter.report("starting", "Starting job description analysis...");
-    
+
     // 1. Generate embedding for the job description
-    reporter.report("jd_embedding", "Creating embeddings for job description...");
+    reporter.report(
+      "jd_embedding",
+      "Creating embeddings for job description..."
+    );
     const jdEmbedding = await getEmbedding(jobDescription);
 
     // 2. Search for similar job descriptions
-    reporter.report("similar_search", "Searching for similar job descriptions...");
+    reporter.report(
+      "similar_search",
+      "Searching for similar job descriptions..."
+    );
     const similarJDs = await searchSimilarJobDescriptions(
       jobDescription,
       3,
@@ -241,7 +255,9 @@ ${jobDescription}`;
         const response = JSON.parse(skillsText || "{}");
         extractedSkills = response.skills || [];
         extractedSkills = extractedSkills
-          .filter((skill) => typeof skill === "string" && skill.trim().length > 0)
+          .filter(
+            (skill) => typeof skill === "string" && skill.trim().length > 0
+          )
           .map((skill) => skill.trim())
           .slice(0, 15);
       } catch (error) {
@@ -271,13 +287,19 @@ ${jobDescription}`;
         })) || [];
 
       // Validate that the extracted skills match the similar JD skills
-      reporter.report("skill_matching", "Matching extracted skills with existing skills...");
+      reporter.report(
+        "skill_matching",
+        "Matching extracted skills with existing skills..."
+      );
       let skillsMatch = false;
       if (extractedSkills.length > 0) {
         for (const extractedSkill of extractedSkills) {
           for (const existingSkill of existingSkills) {
             // Use our enhanced text similarity for validation
-            const similarity = await calculateTextSimilarity(extractedSkill, existingSkill.name);
+            const similarity = await calculateTextSimilarity(
+              extractedSkill,
+              existingSkill.name
+            );
             if (similarity >= 0.9) {
               skillsMatch = true;
               break;
@@ -290,14 +312,19 @@ ${jobDescription}`;
       console.log("Skills match validation:", skillsMatch);
 
       if (!skillsMatch && extractedSkills.length > 0) {
-        console.log("Skills don't match similar JD. Treating as new JD to ensure accurate skill extraction.");
+        console.log(
+          "Skills don't match similar JD. Treating as new JD to ensure accurate skill extraction."
+        );
         // Fall through to the normal extraction logic
       } else {
         // Skills match! Use the similar JD's skills
         console.log("Skills match! Using existing skills from similar JD.");
 
-                // Get questions with confidence scores for each skill (10 questions per skill)
-        reporter.report("question_search", "Finding existing interview questions...");
+        // Get questions with confidence scores for each skill (10 questions per skill)
+        reporter.report(
+          "question_search",
+          "Finding existing interview questions..."
+        );
         const skillsWithQuestions = await Promise.all(
           existingSkills.map(async (skill) => {
             // Get 10 questions using the enhanced vector search
@@ -307,101 +334,113 @@ ${jobDescription}`;
               10
             );
 
-          // Check if we need to generate questions
-          const needGeneration = questionsWithConfidence.some(
-            (q) => q.needsGeneration
-          );
-
-          let processedQuestions = [...questionsWithConfidence];
-
-          if (needGeneration) {
-            const lowConfidenceQuestions = questionsWithConfidence.filter(
+            // Check if we need to generate questions
+            const needGeneration = questionsWithConfidence.some(
               (q) => q.needsGeneration
             );
-            reporter.report("question_generation", `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name}...`);
-            console.log(
-              `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name}`
-            );
 
-            const questionsPrompt = `Generate ${lowConfidenceQuestions.length} technical interview questions for the skill "${skill.name}". Return the response as a JSON object with a "questions" array containing the questions as strings.`;
+            let processedQuestions = [...questionsWithConfidence];
 
-            const questionsCompletion = await openai.chat.completions.create({
-              model: "gpt-4.1",
-              messages: [{ role: "user", content: questionsPrompt }],
-              temperature: 0.7,
-              response_format: { type: "json_object" },
-            });
-
-            let generatedQuestions: string[] = [];
-            try {
-              const response = JSON.parse(
-                questionsCompletion.choices[0].message.content || "{}"
+            if (needGeneration) {
+              const lowConfidenceQuestions = questionsWithConfidence.filter(
+                (q) => q.needsGeneration
               );
-              generatedQuestions = response.questions || [];
-            } catch (error) {
-              console.error("Failed to parse questions JSON:", error);
-              generatedQuestions =
-                questionsCompletion.choices[0].message.content
-                  ?.split("\n")
-                  .filter((line) => line.trim())
-                  .map((q) => q.replace(/^\d+\.\s*/, "").trim())
-                  .filter((q) => q.length > 0) || [];
-            }
+              reporter.report(
+                "question_generation",
+                `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name}...`
+              );
+              console.log(
+                `Generating ${lowConfidenceQuestions.length} new questions for ${skill.name}`
+              );
 
-            // Store new questions with embeddings
-            for (const questionText of generatedQuestions) {
-              const questionEmbedding = await getEmbedding(questionText);
-              await prisma.question.create({
-                data: {
-                  text: questionText,
-                  skillId: skill.id,
-                  embedding: questionEmbedding,
-                },
+              const questionsPrompt = `Generate ${lowConfidenceQuestions.length} technical interview questions for the skill "${skill.name}". Return the response as a JSON object with a "questions" array containing the questions as strings.`;
+
+              const questionsCompletion = await openai.chat.completions.create({
+                model: "gpt-4.1",
+                messages: [{ role: "user", content: questionsPrompt }],
+                temperature: 0.7,
+                response_format: { type: "json_object" },
+              });
+
+              let generatedQuestions: string[] = [];
+              try {
+                const response = JSON.parse(
+                  questionsCompletion.choices[0].message.content || "{}"
+                );
+                generatedQuestions = response.questions || [];
+              } catch (error) {
+                console.error("Failed to parse questions JSON:", error);
+                generatedQuestions =
+                  questionsCompletion.choices[0].message.content
+                    ?.split("\n")
+                    .filter((line) => line.trim())
+                    .map((q) => q.replace(/^\d+\.\s*/, "").trim())
+                    .filter((q) => q.length > 0) || [];
+              }
+
+              // Store new questions with embeddings
+              for (const questionText of generatedQuestions) {
+                const questionEmbedding = await getEmbedding(questionText);
+                await prisma.question.create({
+                  data: {
+                    text: questionText,
+                    skillId: skill.id,
+                    embedding: questionEmbedding,
+                  },
+                });
+              }
+
+              // Replace placeholders with generated questions
+              let generatedIndex = 0;
+              processedQuestions = questionsWithConfidence.map((q) => {
+                if (
+                  q.needsGeneration &&
+                  generatedIndex < generatedQuestions.length
+                ) {
+                  const newQuestion = {
+                    ...q,
+                    text: generatedQuestions[generatedIndex],
+                    similarity: 1.0,
+                    needsGeneration: false,
+                    source: "generated" as const,
+                  };
+                  generatedIndex++;
+                  return newQuestion;
+                }
+                return q;
               });
             }
 
-            // Replace placeholders with generated questions
-            let generatedIndex = 0;
-            processedQuestions = questionsWithConfidence.map((q) => {
-              if (q.needsGeneration && generatedIndex < generatedQuestions.length) {
-                const newQuestion = {
-                  ...q,
-                  text: generatedQuestions[generatedIndex],
-                  similarity: 1.0,
-                  needsGeneration: false,
-                  source: "generated" as const,
-                };
-                generatedIndex++;
-                return newQuestion;
-              }
-              return q;
-            });
-          }
+            // Count sources
+            const existingCount = processedQuestions.filter(
+              (q) => q.source === "existing"
+            ).length;
+            const similarCount = processedQuestions.filter(
+              (q) => q.source === "similar"
+            ).length;
+            const generatedCount = processedQuestions.filter(
+              (q) => q.source === "generated"
+            ).length;
 
-          // Count sources
-          const existingCount = processedQuestions.filter(q => q.source === "existing").length;
-          const similarCount = processedQuestions.filter(q => q.source === "similar").length;
-          const generatedCount = processedQuestions.filter(q => q.source === "generated").length;
+            console.log(
+              `${skill.name}: ${existingCount} existing + ${similarCount} similar + ${generatedCount} generated = ${processedQuestions.length} total questions`
+            );
 
-          console.log(
-            `${skill.name}: ${existingCount} existing + ${similarCount} similar + ${generatedCount} generated = ${processedQuestions.length} total questions`
-          );
-
-          return {
-            id: skill.id,
-            name: skill.name,
-            confidence: 1.0, // Existing skills from similar JD have high confidence
-            questions: processedQuestions.map((q) => ({
-              text: q.text,
-              confidence: q.similarity,
-              source: q.source,
-            })),
-            existingCount,
-            similarCount,
-            generatedCount,
-          };
-        })
-      );
+            return {
+              id: skill.id,
+              name: skill.name,
+              confidence: 1.0, // Existing skills from similar JD have high confidence
+              questions: processedQuestions.map((q) => ({
+                text: q.text,
+                confidence: q.similarity,
+                source: q.source,
+              })),
+              existingCount,
+              similarCount,
+              generatedCount,
+            };
+          })
+        );
 
         reporter.report("finalizing", "Preparing final results...");
         const result = {
@@ -417,7 +456,7 @@ ${jobDescription}`;
             similarJDs[0].similarity * 100
           ).toFixed(1)}% match). Using existing skills.`,
         };
-        
+
         reporter.complete(result);
         return result;
       }
@@ -428,7 +467,9 @@ ${jobDescription}`;
       console.log(
         `Similar JDs found but highest similarity is ${(
           similarJDs[0].similarity * 100
-        ).toFixed(1)}% (below 98% threshold). Treating as new JD to ensure accurate skill extraction.`
+        ).toFixed(
+          1
+        )}% (below 98% threshold). Treating as new JD to ensure accurate skill extraction.`
       );
     } else {
       console.log(
@@ -492,14 +533,20 @@ ${jobDescription}`;
     });
 
     // 5. Process skills with confidence scores
-    reporter.report("skill_matching", "Matching skills with existing database...");
+    reporter.report(
+      "skill_matching",
+      "Matching skills with existing database..."
+    );
     const skillsWithConfidence = await searchSkillsForJobDescription(
       jobDescription,
       extractedSkills
     );
 
     // Link skills to job description and get questions (10 questions per skill)
-    reporter.report("question_search", "Finding existing interview questions...");
+    reporter.report(
+      "question_search",
+      "Finding existing interview questions..."
+    );
     const skillsWithQuestions = await Promise.all(
       skillsWithConfidence.map(async (skillWithConf) => {
         // Link skill to job description
@@ -572,7 +619,10 @@ ${jobDescription}`;
           // Replace placeholders with generated questions
           let generatedIndex = 0;
           processedQuestions = questionsWithConfidence.map((q) => {
-            if (q.needsGeneration && generatedIndex < generatedQuestions.length) {
+            if (
+              q.needsGeneration &&
+              generatedIndex < generatedQuestions.length
+            ) {
               const newQuestion = {
                 ...q,
                 text: generatedQuestions[generatedIndex],
@@ -588,9 +638,15 @@ ${jobDescription}`;
         }
 
         // Count sources
-        const existingCount = processedQuestions.filter(q => q.source === "existing").length;
-        const similarCount = processedQuestions.filter(q => q.source === "similar").length;
-        const generatedCount = processedQuestions.filter(q => q.source === "generated").length;
+        const existingCount = processedQuestions.filter(
+          (q) => q.source === "existing"
+        ).length;
+        const similarCount = processedQuestions.filter(
+          (q) => q.source === "similar"
+        ).length;
+        const generatedCount = processedQuestions.filter(
+          (q) => q.source === "generated"
+        ).length;
 
         console.log(
           `${skillWithConf.name}: ${existingCount} existing + ${similarCount} similar + ${generatedCount} generated = ${processedQuestions.length} total questions`
@@ -620,12 +676,15 @@ ${jobDescription}`;
       skills: skillsWithQuestions,
       message: `Extracted ${extractedSkills.length} skills from job description and processed questions.`,
     };
-    
+
     reporter.complete(result);
     return result;
   } catch (error) {
     console.error("Error analyzing job description:", error);
-    const errorMessage = error instanceof Error ? error.message : "Failed to analyze job description";
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Failed to analyze job description";
     reporter.error(errorMessage);
     throw error;
   }

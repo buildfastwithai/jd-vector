@@ -8,46 +8,46 @@ datasource db {
 }
 
 model Skill {
-  id                    Int                   @id @default(autoincrement())
-  name                  String                @unique
-  questions             Question[]
-  jobDescriptionSkills  JobDescriptionSkill[]
-  aliases               SkillAlias[]
+  id                   Int                   @id @default(autoincrement())
+  name                 String                @unique
+  jobDescriptionSkills JobDescriptionSkill[]
+  questions            Question[]
+  aliases              SkillAlias[]
 }
 
 model SkillAlias {
-  id       Int    @id @default(autoincrement())
-  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
-  skillId  Int
-  alias    String
-  
+  id      Int    @id @default(autoincrement())
+  skillId Int
+  alias   String
+  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
   @@unique([skillId, alias])
   @@index([alias])
 }
 
 model Question {
-  id        Int     @id @default(autoincrement())
-  skill     Skill   @relation(fields: [skillId], references: [id])
+  id        Int    @id @default(autoincrement())
   skillId   Int
   text      String
-  embedding Json    // Store as float[] in Postgres
+  embedding Json
+  skill     Skill  @relation(fields: [skillId], references: [id])
 }
 
 model JobDescription {
-  id          Int                   @id @default(autoincrement())
-  title       String?
-  content     String
-  embedding   Json                  // Store as float[] in Postgres
-  createdAt   DateTime              @default(now())
-  skills      JobDescriptionSkill[]
+  id        Int                   @id @default(autoincrement())
+  title     String?
+  content   String
+  embedding Json
+  createdAt DateTime              @default(now())
+  skills    JobDescriptionSkill[]
 }
 
 model JobDescriptionSkill {
   id               Int            @id @default(autoincrement())
-  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
   jobDescriptionId Int
-  skill            Skill          @relation(fields: [skillId], references: [id])
   skillId          Int
-  
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+  skill            Skill          @relation(fields: [skillId], references: [id])
+
   @@unique([jobDescriptionId, skillId])
 }
