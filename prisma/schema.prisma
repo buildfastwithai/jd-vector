@@ -26,28 +26,68 @@ model SkillAlias {
 }
 
 model Question {
-  id        Int    @id @default(autoincrement())
-  skillId   Int
-  text      String
-  embedding Json
-  skill     Skill  @relation(fields: [skillId], references: [id])
+  id            Int             @id @default(autoincrement())
+  skillId       Int
+  text          String
+  embedding     Json
+  skill         Skill           @relation(fields: [skillId], references: [id])
+  skillQuestions SkillQuestion[]
 }
 
 model JobDescription {
-  id        Int                   @id @default(autoincrement())
-  title     String?
-  content   String
-  embedding Json
-  createdAt DateTime              @default(now())
-  skills    JobDescriptionSkill[]
+  id          Int                      @id @default(autoincrement())
+  title       String?
+  content     String
+  embedding   Json
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt @default(now())
+  status      AnalysisStatus           @default(PENDING)
+  skills      JobDescriptionSkill[]
+  analysis    JobDescriptionAnalysis?
+  skillsAnalyzed Int                   @default(0)
+  totalSkills    Int                   @default(0)
 }
 
 model JobDescriptionSkill {
   id               Int            @id @default(autoincrement())
   jobDescriptionId Int
   skillId          Int
+  confidence       Float          @default(1.0)
+  source           String         @default("extracted") // "existing" or "extracted"
+  isProcessed      Boolean        @default(false)
+  questionsCount   Int            @default(0)
   jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
   skill            Skill          @relation(fields: [skillId], references: [id])
+  questions        SkillQuestion[]
 
   @@unique([jobDescriptionId, skillId])
+}
+
+model JobDescriptionAnalysis {
+  id               Int            @id @default(autoincrement())
+  jobDescriptionId Int            @unique
+  source           String         // "similar_jd" or "extracted"
+  message          String
+  similarJDs       Json?          // Array of similar JD data
+  createdAt        DateTime       @default(now())
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+}
+
+model SkillQuestion {
+  id                    Int                 @id @default(autoincrement())
+  jobDescriptionSkillId Int
+  questionId            Int
+  source                String              // "existing", "similar", "generated"
+  confidence            Float               @default(1.0)
+  jobDescriptionSkill   JobDescriptionSkill @relation(fields: [jobDescriptionSkillId], references: [id], onDelete: Cascade)
+  question              Question            @relation(fields: [questionId], references: [id])
+
+  @@unique([jobDescriptionSkillId, questionId])
+}
+
+enum AnalysisStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }
