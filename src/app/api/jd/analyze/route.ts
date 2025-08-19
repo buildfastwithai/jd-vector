@@ -149,6 +149,42 @@ class ProgressReporter {
   }
 }
 
+export async function GET(req: Request) {
+  // For EventSource, we need to return a streaming response
+  // The actual job description will be passed via query parameters or we'll use a default flow
+
+  const url = new URL(req.url);
+  const jobDescription = url.searchParams.get("jobDescription");
+  const title = url.searchParams.get("title");
+
+  if (!jobDescription) {
+    return Response.json(
+      { error: "Job description is required as query parameter" },
+      { status: 400 }
+    );
+  }
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const reporter = new ProgressReporter(controller);
+      analyzeWithProgress(jobDescription, title, reporter).catch((error) => {
+        console.error("Analysis failed:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : "Analysis failed";
+        reporter.error(errorMessage);
+      });
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+
 export async function POST(req: Request) {
   const { jobDescription, title, useSSE } = await req.json();
 
