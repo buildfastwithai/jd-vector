@@ -311,7 +311,7 @@ ${jobDescription.content}`;
       extractedSkills = extractedSkills
         .filter((skill) => typeof skill === "string" && skill.trim().length > 0)
         .map((skill) => skill.trim())
-        .slice(0, 15);
+        .slice(0, Math.floor(Math.random() * 3) + 8); // Random between 8-10 skills
     } catch (error) {
       console.error("Failed to parse skills JSON:", error);
       extractedSkills =
@@ -320,7 +320,7 @@ ${jobDescription.content}`;
           .filter((line) => line.trim())
           .map((line) => line.replace(/[^a-zA-Z0-9\s\+\#\.\-]/g, "").trim())
           .filter((skill) => skill.length > 0 && skill.length < 50)
-          .slice(0, 10) || [];
+          .slice(0, Math.floor(Math.random() * 3) + 8) || []; // Random between 8-10 skills
     }
 
     // Process skills with confidence scores

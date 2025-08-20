@@ -66,7 +66,7 @@ export default function SkillsTable({ skills }: SkillsTableProps) {
                 Source
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Questions Available
+                Question Sources
               </th>
             </tr>
           </thead>
@@ -88,27 +88,28 @@ export default function SkillsTable({ skills }: SkillsTableProps) {
                   {getSourceBadge(skill.source)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-900">
-                      {skill.questions.length} questions
-                    </span>
-                    <div className="flex space-x-1">
-                      {(skill.existingCount || skill.questions.filter(q => q.source === "existing").length) > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          {skill.existingCount || skill.questions.filter(q => q.source === "existing").length} existing
-                        </span>
-                      )}
-                      {(skill.similarCount || skill.questions.filter(q => q.source === "similar").length) > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                          {skill.similarCount || skill.questions.filter(q => q.source === "similar").length} similar
-                        </span>
-                      )}
-                      {(skill.generatedCount || skill.questions.filter(q => q.source === "generated").length) > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                          {skill.generatedCount || skill.questions.filter(q => q.source === "generated").length} generated
-                        </span>
-                      )}
-                    </div>
+                  <div className="flex space-x-1">
+                    {(skill.existingCount ||
+                      skill.questions.filter((q) => q.source === "existing")
+                        .length) > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        {skill.existingCount ||
+                          skill.questions.filter((q) => q.source === "existing")
+                            .length}{" "}
+                        existing
+                      </span>
+                    )}
+                    {(skill.generatedCount ||
+                      skill.questions.filter((q) => q.source === "generated")
+                        .length) > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        {skill.generatedCount ||
+                          skill.questions.filter(
+                            (q) => q.source === "generated"
+                          ).length}{" "}
+                        generated
+                      </span>
+                    )}
                   </div>
                 </td>
               </tr>

@@ -30,6 +30,7 @@ export default function JobDescriptionAnalysis({
     Record<number, number>
   >({});
   const [progressMessage, setProgressMessage] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<"skills" | "questions">("skills");
   const [thinkingPhases, setThinkingPhases] = useState<ThinkingPhase[]>([
     {
       id: "starting",
@@ -484,222 +485,332 @@ export default function JobDescriptionAnalysis({
               </div>
             )}
 
-            {/* Skills Table */}
-            <SkillsTable skills={result.skills} />
-
-            {/* Interview Questions - Skill-wise Collapsible Cards */}
+            {/* Tabbed Interface */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Interview Questions (
-                  {result.skills.reduce(
-                    (total, skill) => total + skill.questions.length,
-                    0
-                  )}
-                  )
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Click on each skill to view and navigate through interview
-                  questions
-                </p>
+              {/* Tab Navigation */}
+              <div className="border-b border-gray-200">
+                <nav className="flex space-x-8 px-6" aria-label="Tabs">
+                  <button
+                    onClick={() => setActiveTab("skills")}
+                    className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === "skills"
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    Skills ({result.skills.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("questions")}
+                    className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === "questions"
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    Questions (
+                    {result.skills.reduce(
+                      (total, skill) => total + skill.questions.length,
+                      0
+                    )}
+                    )
+                  </button>
+                </nav>
               </div>
 
-              <div className="divide-y divide-gray-200">
-                {result.skills.map((skill) => {
-                  const isExpanded = expandedSkills.has(skill.id);
-                  const currentPage = skillQuestionPages[skill.id] || 1;
-                  const totalPages = getTotalPages(skill.questions.length, 5);
-                  const displayedQuestions = getSkillQuestions(
-                    skill.questions,
-                    currentPage,
-                    5
-                  );
+              {/* Tab Content */}
+              <div className="p-6">
+                {activeTab === "skills" && (
+                  <div>
+                    {/* Skills Summary */}
+                    <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                      <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                        Skills Summary
+                      </h4>
+                      <div className="bg-white p-4 rounded-lg">
+                        <p className="text-gray-700 leading-relaxed">
+                          We found a total of{" "}
+                          <span className="text-2xl font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">
+                            {result.skills.length}
+                          </span>{" "}
+                          skills in this job description.{" "}
+                          <span className="text-2xl font-bold text-green-600 bg-green-50 px-2 py-1 rounded">
+                            {
+                              result.skills.filter(
+                                (skill) => skill.source === "existing"
+                              ).length
+                            }
+                          </span>{" "}
+                          skills were already in our database, and{" "}
+                          <span className="text-2xl font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            {
+                              result.skills.filter(
+                                (skill) => skill.source === "extracted"
+                              ).length
+                            }
+                          </span>{" "}
+                          new skills were identified and added.
+                        </p>
+                      </div>
+                    </div>
 
-                  return (
-                    <div
-                      key={skill.id}
-                      className="border-b border-gray-200 last:border-b-0"
-                    >
-                      {/* Skill Header */}
-                      <div
-                        className="px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
-                        onClick={() => toggleSkillExpansion(skill.id)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <h4 className="text-lg font-medium text-gray-900">
-                              {skill.name}
-                            </h4>
-                            <div className="flex space-x-2">
-                              {(skill.existingCount ||
+                    {/* Skills Table */}
+                    <SkillsTable skills={result.skills} />
+                  </div>
+                )}
+
+                {activeTab === "questions" && (
+                  <div>
+                    {/* Questions Summary */}
+                    <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                      <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                        Questions Summary
+                      </h4>
+                      <div className="bg-white p-4 rounded-lg">
+                        <p className="text-gray-700 leading-relaxed">
+                          Generated a total of{" "}
+                          <span className="text-2xl font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">
+                            {result.skills.reduce(
+                              (total, skill) => total + skill.questions.length,
+                              0
+                            )}
+                          </span>{" "}
+                          interview questions across all skills.{" "}
+                          <span className="text-2xl font-bold text-green-600 bg-green-50 px-2 py-1 rounded">
+                            {result.skills.reduce(
+                              (total, skill) =>
+                                total +
                                 skill.questions.filter(
-                                  (q) => q.source === "existing"
-                                ).length) > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                                  {skill.existingCount ||
-                                    skill.questions.filter(
-                                      (q) => q.source === "existing"
-                                    ).length}{" "}
-                                  existing
-                                </span>
-                              )}
-                              {(skill.similarCount ||
-                                skill.questions.filter(
-                                  (q) => q.source === "similar"
-                                ).length) > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                                  {skill.similarCount ||
-                                    skill.questions.filter(
-                                      (q) => q.source === "similar"
-                                    ).length}{" "}
-                                  similar
-                                </span>
-                              )}
-                              {(skill.generatedCount ||
+                                  (q) =>
+                                    q.source === "existing" ||
+                                    q.source === "similar"
+                                ).length,
+                              0
+                            )}
+                          </span>{" "}
+                          questions were found through vector search of our
+                          existing database, and{" "}
+                          <span className="text-2xl font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            {result.skills.reduce(
+                              (total, skill) =>
+                                total +
                                 skill.questions.filter(
                                   (q) => q.source === "generated"
-                                ).length) > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                  {skill.generatedCount ||
-                                    skill.questions.filter(
-                                      (q) => q.source === "generated"
-                                    ).length}{" "}
-                                  generated
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <span className="text-sm text-gray-500">
-                              {skill.questions.length} questions
-                            </span>
-                            <svg
-                              className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
-                                isExpanded ? "rotate-180" : ""
-                              }`}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 9l-7 7-7-7"
-                              />
-                            </svg>
-                          </div>
-                        </div>
+                                ).length,
+                              0
+                            )}
+                          </span>{" "}
+                          new questions were created using AI.
+                        </p>
                       </div>
+                    </div>
 
-                      {/* Questions Content */}
-                      {isExpanded && (
-                        <div className="px-6 pb-4">
-                          {/* Questions List */}
-                          <div className="space-y-3 mb-4">
-                            {displayedQuestions.map((question, index) => (
-                              <div
-                                key={index}
-                                className="border border-gray-200 rounded-lg p-4 bg-gray-50"
-                              >
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1">
-                                    <p className="text-gray-900 leading-relaxed">
-                                      {question.text}
-                                    </p>
-                                  </div>
-                                  <div className="ml-4 flex flex-col items-end space-y-2">
-                                    <span
-                                      className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                        question.source === "existing"
-                                          ? "bg-green-100 text-green-800"
-                                          : question.source === "similar"
-                                          ? "bg-yellow-100 text-yellow-800"
-                                          : "bg-blue-100 text-blue-800"
-                                      }`}
-                                    >
-                                      {question.source}
-                                    </span>
+                    {/* Questions Accordion */}
+                    <div className="space-y-3">
+                      {result.skills.map((skill) => {
+                        const isExpanded = expandedSkills.has(skill.id);
+                        const currentPage = skillQuestionPages[skill.id] || 1;
+                        const totalPages = getTotalPages(
+                          skill.questions.length,
+                          5
+                        );
+                        const displayedQuestions = getSkillQuestions(
+                          skill.questions,
+                          currentPage,
+                          5
+                        );
+
+                        return (
+                          <div
+                            key={skill.id}
+                            className="bg-white border border-gray-200 rounded-lg overflow-hidden"
+                          >
+                            {/* Skill Header */}
+                            <div
+                              className="px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-200"
+                              onClick={() => toggleSkillExpansion(skill.id)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <h4 className="text-lg font-medium text-gray-900">
+                                    {skill.name}
+                                  </h4>
+                                  <div className="flex space-x-2">
+                                    {(skill.existingCount ||
+                                      skill.questions.filter(
+                                        (q) => q.source === "existing"
+                                      ).length) > 0 && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                        {skill.existingCount ||
+                                          skill.questions.filter(
+                                            (q) => q.source === "existing"
+                                          ).length}{" "}
+                                        existing
+                                      </span>
+                                    )}
+                                    {(skill.similarCount ||
+                                      skill.questions.filter(
+                                        (q) => q.source === "similar"
+                                      ).length) > 0 && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                        {skill.similarCount ||
+                                          skill.questions.filter(
+                                            (q) => q.source === "similar"
+                                          ).length}{" "}
+                                        similar
+                                      </span>
+                                    )}
+                                    {(skill.generatedCount ||
+                                      skill.questions.filter(
+                                        (q) => q.source === "generated"
+                                      ).length) > 0 && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                        {skill.generatedCount ||
+                                          skill.questions.filter(
+                                            (q) => q.source === "generated"
+                                          ).length}{" "}
+                                        generated
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-sm text-gray-500">
+                                    {skill.questions.length} questions
+                                  </span>
+                                  <svg
+                                    className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
+                                      isExpanded ? "rotate-180" : ""
+                                    }`}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 9l-7 7-7-7"
+                                    />
+                                  </svg>
+                                </div>
                               </div>
-                            ))}
-                          </div>
+                            </div>
 
-                          {/* Pagination */}
-                          {totalPages > 1 && (
-                            <div className="flex items-center justify-between">
-                              <div className="text-sm text-gray-700">
-                                Showing {(currentPage - 1) * 5 + 1} to{" "}
-                                {Math.min(
-                                  currentPage * 5,
-                                  skill.questions.length
-                                )}{" "}
-                                of {skill.questions.length} questions
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  onClick={() =>
-                                    setSkillPage(
-                                      skill.id,
-                                      Math.max(1, currentPage - 1)
-                                    )
-                                  }
-                                  disabled={currentPage === 1}
-                                  className={`px-3 py-1 rounded-md text-sm ${
-                                    currentPage === 1
-                                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                      : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
-                                  }`}
-                                >
-                                  Previous
-                                </button>
-
-                                <div className="flex space-x-1">
-                                  {Array.from(
-                                    { length: totalPages },
-                                    (_, i) => i + 1
-                                  ).map((page) => (
-                                    <button
-                                      key={page}
-                                      onClick={() =>
-                                        setSkillPage(skill.id, page)
-                                      }
-                                      className={`px-3 py-1 rounded-md text-sm ${
-                                        page === currentPage
-                                          ? "bg-blue-600 text-white"
-                                          : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
-                                      }`}
+                            {/* Questions Content */}
+                            {isExpanded && (
+                              <div className="px-6 py-4">
+                                {/* Questions List */}
+                                <div className="space-y-3 mb-4">
+                                  {displayedQuestions.map((question, index) => (
+                                    <div
+                                      key={index}
+                                      className="border border-gray-200 rounded-lg p-4 bg-gray-50"
                                     >
-                                      {page}
-                                    </button>
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <p className="text-gray-900 leading-relaxed">
+                                            {question.text}
+                                          </p>
+                                        </div>
+                                        <div className="ml-4 flex flex-col items-end space-y-2">
+                                          <span
+                                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                              question.source === "existing"
+                                                ? "bg-green-100 text-green-800"
+                                                : question.source === "similar"
+                                                ? "bg-yellow-100 text-yellow-800"
+                                                : "bg-blue-100 text-blue-800"
+                                            }`}
+                                          >
+                                            {question.source}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
                                   ))}
                                 </div>
 
-                                <button
-                                  onClick={() =>
-                                    setSkillPage(
-                                      skill.id,
-                                      Math.min(totalPages, currentPage + 1)
-                                    )
-                                  }
-                                  disabled={currentPage === totalPages}
-                                  className={`px-3 py-1 rounded-md text-sm ${
-                                    currentPage === totalPages
-                                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                      : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
-                                  }`}
-                                >
-                                  Next
-                                </button>
+                                {/* Pagination */}
+                                {totalPages > 1 && (
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-sm text-gray-700">
+                                      Showing {(currentPage - 1) * 5 + 1} to{" "}
+                                      {Math.min(
+                                        currentPage * 5,
+                                        skill.questions.length
+                                      )}{" "}
+                                      of {skill.questions.length} questions
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <button
+                                        onClick={() =>
+                                          setSkillPage(
+                                            skill.id,
+                                            Math.max(1, currentPage - 1)
+                                          )
+                                        }
+                                        disabled={currentPage === 1}
+                                        className={`px-3 py-1 rounded-md text-sm ${
+                                          currentPage === 1
+                                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                            : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                        }`}
+                                      >
+                                        Previous
+                                      </button>
+
+                                      <div className="flex space-x-1">
+                                        {Array.from(
+                                          { length: totalPages },
+                                          (_, i) => i + 1
+                                        ).map((page) => (
+                                          <button
+                                            key={page}
+                                            onClick={() =>
+                                              setSkillPage(skill.id, page)
+                                            }
+                                            className={`px-3 py-1 rounded-md text-sm ${
+                                              page === currentPage
+                                                ? "bg-blue-600 text-white"
+                                                : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                            }`}
+                                          >
+                                            {page}
+                                          </button>
+                                        ))}
+                                      </div>
+
+                                      <button
+                                        onClick={() =>
+                                          setSkillPage(
+                                            skill.id,
+                                            Math.min(
+                                              totalPages,
+                                              currentPage + 1
+                                            )
+                                          )
+                                        }
+                                        disabled={currentPage === totalPages}
+                                        className={`px-3 py-1 rounded-md text-sm ${
+                                          currentPage === totalPages
+                                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                            : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                        }`}
+                                      >
+                                        Next
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
               </div>
             </div>
           </div>

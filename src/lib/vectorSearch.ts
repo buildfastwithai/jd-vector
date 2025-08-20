@@ -473,78 +473,62 @@ export async function getQuestionsWithConfidence(
   skillId: number,
   limit: number = 10
 ): Promise<QuestionWithConfidence[]> {
-  // Always aim for 7 existing + 3 new pattern when limit is 10
-  const maxExistingQuestions = limit === 10 ? 7 : Math.ceil(limit * 0.7);
-  const targetNewQuestions = limit - maxExistingQuestions;
+  // Generate random distribution for existing vs generated questions
+  // Force randomization regardless of what's available in database
+  const existingCount = Math.floor(Math.random() * 6) + 2; // 2-7 existing
+  const generatedCount = limit - existingCount; // rest are generated
 
-  // First try to get questions directly by skill ID (existing questions)
-  const directQuestions = await getQuestionsBySkillId(
-    skillId,
-    maxExistingQuestions
+  console.log(
+    `For skill ${skillName}: Forcing ${existingCount} existing + ${generatedCount} generated questions`
   );
 
-  // Mark direct questions as existing
-  const existingQuestions: QuestionWithConfidence[] = directQuestions.map(
-    (q) => ({
+  // Get all available questions for this skill to choose from
+  const allAvailableQuestions = await getQuestionsBySkillId(skillId, 50); // Get up to 50 to choose from
+
+  // Get vector search questions to use as backup
+  const vectorQuestions = await searchQuestionsBySkill(
+    skillName,
+    30, // Get more options
+    0.6
+  );
+
+  // Filter vector questions to exclude questions from same skill
+  const uniqueVectorQuestions = vectorQuestions.filter(
+    (vq) => vq.skillId !== skillId
+  );
+
+  const result: QuestionWithConfidence[] = [];
+
+  // Add existing questions (up to our random limit)
+  const selectedExisting = allAvailableQuestions.slice(0, existingCount);
+  selectedExisting.forEach((q) => {
+    result.push({
       ...q,
       needsGeneration: false,
       source: "existing" as const,
-    })
-  );
+    });
+  });
 
-  console.log(
-    `For skill ${skillName}: Found ${existingQuestions.length} existing questions, targeting ${targetNewQuestions} new questions`
-  );
+  // Fill remaining slots with vector search questions or placeholders for generation
+  const remainingSlots = limit - result.length;
 
-  // Don't return early - always try to get the remaining questions
+  if (remainingSlots > 0) {
+    // Use vector questions if available, but mark them as needing generation
+    const vectorQuestionsToUse = uniqueVectorQuestions.slice(0, remainingSlots);
 
-  // Calculate how many more questions we need
-  const remainingQuestions = limit - existingQuestions.length;
+    vectorQuestionsToUse.forEach((q) => {
+      result.push({
+        ...q,
+        needsGeneration: true, // Force these to be regenerated for variety
+        source: "generated" as const,
+      });
+    });
 
-  if (remainingQuestions <= 0) {
-    return existingQuestions;
-  }
-
-  // Then try vector search for similar questions from other skills using embeddings
-  console.log(
-    `Searching for ${remainingQuestions} additional questions for ${skillName} using embeddings`
-  );
-
-  const vectorQuestions = await searchQuestionsBySkill(
-    skillName,
-    remainingQuestions * 3, // Get more to have better options
-    0.6 // Lower threshold to find more similar questions
-  );
-
-  // Filter out duplicates and questions from the same skill
-  const uniqueVectorQuestions = vectorQuestions.filter(
-    (vq) =>
-      vq.skillId !== skillId && !existingQuestions.some((dq) => dq.id === vq.id)
-  );
-
-  console.log(
-    `Found ${uniqueVectorQuestions.length} potential similar questions for ${skillName}`
-  );
-
-  // Mark vector questions as similar and determine if they need generation
-  const similarQuestions: QuestionWithConfidence[] = uniqueVectorQuestions
-    .slice(0, remainingQuestions) // Limit to what we need
-    .map((q) => ({
-      ...q,
-      needsGeneration: q.similarity < 0.9,
-      source:
-        q.similarity >= 0.9 ? ("similar" as const) : ("generated" as const),
-    }));
-
-  // Combine existing and similar questions
-  const allQuestions = [...existingQuestions, ...similarQuestions];
-
-  // If we still don't have enough questions, add placeholders for generation
-  if (allQuestions.length < limit) {
-    const needed = limit - allQuestions.length;
-    for (let i = 0; i < needed; i++) {
-      allQuestions.push({
-        id: -1, // Placeholder for generated questions
+    // If we still need more, add placeholders
+    const stillNeeded = remainingSlots - vectorQuestionsToUse.length;
+    for (let i = 0; i < stillNeeded; i++) {
+      result.push({
+        id: -1,
         text: `Generated question ${i + 1} needed`,
         skillId,
         skillName,
@@ -555,7 +539,15 @@ export async function getQuestionsWithConfidence(
     }
   }
 
-  return allQuestions;
+  console.log(
+    `Final distribution for ${skillName}: ${
+      result.filter((q) => q.source === "existing").length
+    } existing, ${
+      result.filter((q) => q.source === "generated").length
+    } generated`
+  );
+
+  return result;
 }
 
 export async function getQuestionsBySkillId(
